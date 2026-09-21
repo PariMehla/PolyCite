@@ -2,8 +2,15 @@
 
 Using `documents=` (rather than stuffing passages into the prompt as text)
 gets structured citations back in `message.citations[i].sources[*].id`,
-which we map straight to passage IDs for deterministic citation scoring —
-no string matching, no judge needed for attribution.
+which we map to passage IDs for deterministic citation scoring — no string
+matching, no judge needed for attribution.
+
+Cohere rejects document ids over 100 characters (confirmed against the live
+API: `invalid request: document id length must be less than 100`). Our own
+passage IDs are built from full Belebele/Wikipedia URLs and routinely
+exceed that, so we never send them to Cohere directly — build_documents()
+assigns short positional ids ("d0", "d1", ...) and returns the map back to
+real passage IDs, which generate_answer uses to translate citations.
 """
 from __future__ import annotations
 
@@ -30,9 +37,16 @@ LANGUAGE_NAMES = {
 }
 
 
-def build_documents(candidates: list[tuple[str, str]]) -> list[dict]:
-    """candidates: list of (passage_id, text) -> Cohere Document objects."""
-    return [{"id": pid, "data": {"text": text}} for pid, text in candidates]
+def build_documents(candidates: list[tuple[str, str]]) -> tuple[list[dict], dict[str, str]]:
+    """candidates: list of (passage_id, text) -> (Cohere Document objects with
+    short positional ids, {positional_id: real_passage_id})."""
+    id_map: dict[str, str] = {}
+    documents: list[dict] = []
+    for i, (passage_id, text) in enumerate(candidates):
+        doc_id = f"d{i}"
+        id_map[doc_id] = passage_id
+        documents.append({"id": doc_id, "data": {"text": text}})
+    return documents, id_map
 
 
 def generate_answer(
@@ -46,7 +60,7 @@ def generate_answer(
     """Returns {"text": str, "cited_passage_ids": set[str], "abstained": bool}."""
     answer_language = LANGUAGE_NAMES.get(query_language, query_language)
     prompt = _PROMPT_TEMPLATE.format(answer_language=answer_language, question=question)
-    documents = build_documents(candidates)
+    documents, id_map = build_documents(candidates)
     resp = client.chat(
         model=model,
         messages=[{"role": "user", "content": prompt}],
@@ -60,8 +74,9 @@ def generate_answer(
     cited_ids: set[str] = set()
     for citation in message.get("citations") or []:
         for source in citation.get("sources") or []:
-            if source.get("id"):
-                cited_ids.add(source["id"])
+            raw_id = source.get("id")
+            if raw_id in id_map:
+                cited_ids.add(id_map[raw_id])
 
     abstained = text.strip().upper() == NO_ANSWER_TOKEN
     return {"text": text, "cited_passage_ids": cited_ids, "abstained": abstained, "raw": resp}
