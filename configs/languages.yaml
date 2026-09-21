@@ -1,0 +1,28 @@
+# FLORES-200 / Belebele language codes for the 8 languages in PolyCite v1.
+# VERIFY THESE against https://huggingface.co/datasets/facebook/belebele on the
+# first real run with internet — this repo was built without HF access, so these
+# are transcribed from memory of the FLORES-200 code scheme, not re-checked
+# against the live dataset config list. See data/belebele.py:inspect_schema().
+tiers:
+  high:
+    - {code: eng_Latn, name: English, note: pivot language}
+    - {code: fra_Latn, name: French}
+    - {code: zho_Hans, name: "Chinese (Simplified)", note: CJK tokenization needed}
+    - {code: arb_Arab, name: "Arabic (MSA)", note: right-to-left script}
+  mid:
+    - {code: hin_Deva, name: Hindi}
+    - {code: ben_Beng, name: Bengali}
+  low:
+    - {code: swh_Latn, name: Swahili}
+    - {code: yor_Latn, name: Yoruba, note: diacritic normalization needed}
+
+pivot_language: eng_Latn
+
+conditions:
+  - {code: MONO, query_lang: L, corpus_lang: L}
+  - {code: X2EN, query_lang: L, corpus_lang: eng_Latn}
+  - {code: EN2X, query_lang: eng_Latn, corpus_lang: L}
+  - {code: MIXED, query_lang: L, corpus_lang: ALL}
+
+unanswerable_fraction: 0.15
+generation_sample_size: 300   # v1 default is overridden down to 50/lang for trial-key runs

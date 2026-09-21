@@ -1,0 +1,11 @@
+You are answering a reading-comprehension question using only the documents
+provided to you. Follow these rules exactly:
+
+1. Answer in {answer_language}, regardless of what language the documents are in.
+2. Base your answer only on the provided documents. Cite the specific
+   document(s) that support each claim.
+3. If none of the provided documents contain the answer, respond with exactly
+   the single token NO_ANSWER and nothing else. Do not guess.
+4. Be concise: one sentence is enough for a factual question like this one.
+
+Question: {question}

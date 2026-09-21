@@ -1,0 +1,28 @@
+# Model config for PolyCite v1 (trial-key scope). Pin exact version strings
+# once you've confirmed them on your Cohere dashboard — "latest" aliases drift.
+retrieval:
+  bm25: {enabled: true}
+  dense_local:
+    enabled: false  # needs `pip install sentence-transformers` + HF model download
+    model: intfloat/multilingual-e5-small
+  dense_cohere:
+    enabled: true
+    model: embed-v4.0
+
+rerank:
+  model: rerank-v3.5
+  top_k_in: 50
+  top_k_out: 5
+
+generation:
+  model: command-a-03-2025  # pin the exact version string from your dashboard before running
+  temperature: 0.0
+  max_tokens: 400
+
+budget:
+  cohere_call_cap: 1000
+  generation_questions_per_language: 50  # v1 trial-key scope; plan calls for 300/lang in v2
+
+cache_dir: cache
+results_dir: results
+figures_dir: figures

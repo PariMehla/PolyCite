@@ -1,0 +1,15 @@
+cohere>=7.1,<8
+rank_bm25>=0.2
+pandas>=2.0
+pyarrow>=14
+numpy>=1.24
+matplotlib>=3.7
+pyyaml>=6.0
+pytest>=7.4
+
+# Needed only for --mode live (data/belebele.py) and for the local dense
+# retrieval baseline (retrieval/dense.py from_local_encoder) — both require
+# huggingface.co access this sandbox doesn't have. Uncomment when you're
+# running somewhere with internet:
+# datasets>=2.14
+# sentence-transformers>=2.2

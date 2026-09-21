@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Cache and outputs (regenerable via `make reproduce`)
+cache/*
+!cache/.gitkeep
+results/*.parquet
+!results/.gitkeep
+figures/*.png
+!figures/.gitkeep
+
+.env
+.DS_Store
+.pytest_cache/
