@@ -21,7 +21,13 @@ generation:
 
 budget:
   cohere_call_cap: 1000
-  generation_questions_per_language: 50  # v1 trial-key scope; plan calls for 300/lang in v2
+  # scripts/run_pipeline.py runs ALL 4 conditions (MONO/X2EN/EN2X/MIXED) per
+  # language, 2 calls/question (rerank + chat). Total cost = 8 languages x
+  # this number x 4 conditions x 2. At 10, that's 640 calls -- leaves room
+  # under the 1,000/month trial cap for reruns, the embed/rerank experiments
+  # you'll want to add later this month, and mistakes. Raise this only once
+  # you've watched cache/call_count.json and know how much headroom you have.
+  generation_questions_per_language: 10  # plan calls for 300/lang in v2, with a real budget
 
 cache_dir: cache
 results_dir: results

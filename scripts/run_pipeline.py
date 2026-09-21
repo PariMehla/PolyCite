@@ -30,7 +30,7 @@ import yaml
 
 from polycite.analysis import attribution, figures, stats
 from polycite.analysis.language_id import detect_language_coarse
-from polycite.cohere_client import CohereClient, estimate_and_confirm
+from polycite.cohere_client import BudgetExceededError, CohereClient, estimate_and_confirm
 from polycite.data.build_corpus import Corpus, build_fixture_corpus, corpus_excluding_gold
 from polycite.generate.cohere_chat import generate_answer
 from polycite.generate.scoring import score_generation
@@ -49,7 +49,12 @@ def run_condition(
     generation_model: str,
     top_k_retrieve: int = 50,
     top_k_rerank: int = 5,
-) -> list[dict]:
+) -> tuple[list[dict], bool]:
+    """Returns (rows, budget_exhausted). Stops early and returns whatever it
+    has, rather than crashing, if the Cohere call budget runs out mid-loop —
+    a live run that dies uncaught here would spend real trial-key calls and
+    save nothing, since results are only written to disk after every
+    condition finishes (see main())."""
     rows = []
     for question in corpus.questions:
         query_language = "eng_Latn" if condition == "EN2X" else question["language"]
@@ -60,13 +65,17 @@ def run_condition(
         bm25 = BM25Index(pool)
         retrieved = bm25.search(question["question"], query_language, top_k=top_k_retrieve)
         retrieved_ids = [pid for pid, _ in retrieved]
-
         candidates = [(pid, pool[pid]["text"]) for pid in retrieved_ids]
-        reranked = rerank(client, question["question"], candidates, model=rerank_model, top_n=top_k_rerank)
-        reranked_ids = [pid for pid, _ in reranked]
 
-        gen_candidates = [(pid, pool[pid]["text"]) for pid in reranked_ids]
-        result = generate_answer(client, question["question"], query_language, gen_candidates, model=generation_model)
+        try:
+            reranked = rerank(client, question["question"], candidates, model=rerank_model, top_n=top_k_rerank)
+            reranked_ids = [pid for pid, _ in reranked]
+            gen_candidates = [(pid, pool[pid]["text"]) for pid in reranked_ids]
+            result = generate_answer(client, question["question"], query_language, gen_candidates, model=generation_model)
+        except BudgetExceededError as e:
+            print(f"\n[polycite] Cohere call budget exhausted mid-run: {e}", file=sys.stderr)
+            print(f"[polycite] stopping here and saving the {len(rows)} rows already collected for condition={condition}.", file=sys.stderr)
+            return rows, True
 
         gold_index = question["answer_index"]
         gold_answer = question["options"][gold_index]
@@ -98,7 +107,7 @@ def run_condition(
         }
         record["failure_stage"] = attribution.classify_failure(record)
         rows.append(record)
-    return rows
+    return rows, False
 
 
 def summarize(rows: list[dict]) -> None:
@@ -146,8 +155,18 @@ def main():
             langs_cfg = yaml.safe_load(Path("configs/languages.yaml").read_text())
             languages = [l["code"] for tier in langs_cfg["tiers"].values() for l in tier]
         n_per_lang = config["budget"]["generation_questions_per_language"]
+        estimated_calls = len(languages) * n_per_lang * len(CONDITIONS) * 2  # 1 rerank + 1 chat per question per condition
+        call_cap = config["budget"]["cohere_call_cap"]
+        if estimated_calls > call_cap:
+            print(
+                f"[polycite] WARNING: this run is estimated at {estimated_calls} calls, over your "
+                f"{call_cap}-call budget. It WILL stop partway through (results up to that point are "
+                f"still saved) unless you lower budget.generation_questions_per_language in "
+                f"{args.config}.",
+                file=sys.stderr,
+            )
         estimate_and_confirm(
-            n_calls=len(languages) * n_per_lang * len(CONDITIONS) * 2,  # rough: 1 rerank + 1 chat per question per condition
+            n_calls=estimated_calls,
             description=f"live run: {len(languages)} languages x {n_per_lang}/lang x {len(CONDITIONS)} conditions",
         )
         corpus = build_belebele_corpus(languages, sample_per_language=n_per_lang)
@@ -157,8 +176,11 @@ def main():
 
     all_rows = []
     for condition in CONDITIONS:
-        rows = run_condition(client, corpus, condition, rerank_model, generation_model)
+        rows, budget_exhausted = run_condition(client, corpus, condition, rerank_model, generation_model)
         all_rows.extend(rows)
+        if budget_exhausted:
+            print(f"[polycite] skipping remaining conditions after {condition}; saving partial results below.", file=sys.stderr)
+            break
 
     if not all_rows:
         print("[polycite] No rows produced — check corpus size / conditions.", file=sys.stderr)
