@@ -37,7 +37,7 @@ class DenseIndex:
 
     @classmethod
     def from_cohere(
-        cls, client: CohereClient, passages: dict[str, dict], model: str = "embed-v4.0"
+        cls, client: CohereClient, passages: dict[str, dict], model: str = "embed-multilingual-v3.0"
     ) -> "DenseIndex":
         ids = list(passages.keys())
         texts = [passages[pid]["text"] for pid in ids]
@@ -59,7 +59,7 @@ class DenseIndex:
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:top_k]
 
-    def search_cohere(self, client: CohereClient, query: str, model: str = "embed-v4.0", top_k: int = 50) -> list[tuple[str, float]]:
+    def search_cohere(self, client: CohereClient, query: str, model: str = "embed-multilingual-v3.0", top_k: int = 50) -> list[tuple[str, float]]:
         resp = client.embed(model=model, input_type="search_query", texts=[query])
         query_vector = resp["embeddings"]["float"][0]
         return self.search_with_vector(query_vector, top_k)

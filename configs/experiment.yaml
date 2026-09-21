@@ -7,15 +7,15 @@ retrieval:
     model: intfloat/multilingual-e5-small
   dense_cohere:
     enabled: true
-    model: embed-v4.0
+    model: embed-multilingual-v3.0  # embed-v4.0 is NOT on this trial account's model list (checked via client.models.list())
 
 rerank:
-  model: rerank-v3.5
+  model: rerank-v3.5  # UNVERIFIED: client.models.list() doesn't return rerank models at all, so this hasn't been confirmed against the live account. If a rerank call 404s, check your dashboard for the exact rerank model name and update this.
   top_k_in: 50
   top_k_out: 5
 
 generation:
-  model: command-a-03-2025  # pin the exact version string from your dashboard before running
+  model: command-a-03-2025  # confirmed present via client.models.list() on 2026-09-21
   temperature: 0.0
   max_tokens: 400
 

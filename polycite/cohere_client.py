@@ -140,7 +140,7 @@ class CohereClient:
 
     Usage:
         client = CohereClient()
-        resp = client.embed(model="embed-v4.0", input_type="search_document", texts=[...])
+        resp = client.embed(model="embed-multilingual-v3.0", input_type="search_document", texts=[...])
         resp = client.rerank(model="rerank-v3.5", query=q, documents=docs, top_n=5)
         resp = client.chat(model="command-a", messages=[...], documents=[...], temperature=0)
 
