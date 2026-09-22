@@ -202,23 +202,15 @@ small, cheap, falsifiable experiments (`polycite/generate/semantic_scoring.py`,
   ```
   python3 scripts/rescore_semantic.py results/live_results.parquet
   ```
-- **Finding #1 (EN2X false abstention): result pending a same-scope
-  baseline comparison.** The anti-abstain prompt on EN2X for
-  hin_Deva/yor_Latn/swh_Latn/ben_Beng measured `false_abstention=0.64`
-  (95% CI [0.48, 0.79], n=33) — but `summarize()`'s false-abstention report
-  only ever broke this down by condition, not condition+language, so
-  comparing that number against the *original 8-language* EN2X baseline
-  would be apples-to-oranges. `scripts/compare_abstention.py` (new) filters
-  both runs to the same condition+language scope and reports a paired
-  bootstrap diff when the two runs share the exact same question set:
-  ```
-  python3 scripts/compare_abstention.py \
-      results/live_results.parquet results/live_anti_abstain_results.parquet \
-      --condition EN2X --languages hin_Deva,yor_Latn,swh_Latn,ben_Beng
-  ```
-  Whoever has both parquets locally should run this and record the verdict
-  in `HYPOTHESES.md` — not yet done here because this environment doesn't
-  have those result files (results/ is gitignored, generated per-machine).
+- **Finding #1 (EN2X false abstention): fixed, partially, and confirmed
+  with a paired comparison.** One added prompt sentence — a document
+  needing translation is never by itself a reason to say `NO_ANSWER` — cut
+  EN2X false abstention on hin_Deva/yor_Latn/swh_Latn/ben_Beng from **0.79
+  to 0.64** (paired diff −0.15, 95% CI [−0.27, −0.03], n=33 matched
+  questions, `scripts/compare_abstention.py`). The CI excludes 0, so this
+  isn't noise — but 0.64 is still high, so it's a real, partial fix, not a
+  solved problem. Full numbers and the comparison command in
+  `HYPOTHESES.md`.
 
 ## Quickstart
 

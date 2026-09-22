@@ -238,20 +238,14 @@ retrieval/rerank calls hit cache -- only chat calls were new).
 
 **Raw result:** `false_abstention=0.64`, 95% CI [0.48, 0.79], n=33.
 
-**Verdict: not yet determined -- this number alone doesn't say whether the
-prompt helped.** It needs to be compared against the *original* EN2X
-false-abstention rate for these same 4 languages, not the all-8-language
-EN2X baseline `summarize()` reports (different, wider scope -- would be
-apples to oranges). That comparison wasn't possible before because
-`summarize()`'s false-abstention report only broke down by condition, not
-condition+language.
-
-`scripts/compare_abstention.py` (new, unit-tested, zero new Cohere calls --
-it only reads two existing result parquets) fixes that: it filters both
-runs to the same condition+language scope and reports a paired bootstrap
-diff when both runs cover the exact same question set. Run it against
-`results/live_results.parquet` (baseline) and
-`results/live_anti_abstain_results.parquet` (variant):
+That number alone didn't say whether the prompt helped -- it needed to be
+compared against the *original* EN2X false-abstention rate for these same
+4 languages, not the all-8-language EN2X baseline `summarize()` reports
+(different, wider scope -- would be apples to oranges), and
+`summarize()`'s false-abstention report only ever broke down by condition,
+not condition+language. `scripts/compare_abstention.py` fixed that: it
+filters both runs to the same condition+language scope and reports a
+paired bootstrap diff when both runs cover the exact same question set.
 
 ```
 python3 scripts/compare_abstention.py \
@@ -259,8 +253,22 @@ python3 scripts/compare_abstention.py \
     --condition EN2X --languages hin_Deva,yor_Latn,swh_Latn,ben_Beng
 ```
 
-This step is left undone here because this environment does not have
-either result parquet (`results/` is gitignored and generated per-machine
-by a live run against a real Cohere key). Whoever has both files locally
-should run the command above and record the verdict (helped / hurt / no
-clear difference, with the paired-diff CI) in this section.
+**Result (run 2026-09-22, same 33 matched questions both runs):**
+
+| | false_abstention | 95% CI |
+|---|---|---|
+| baseline (default prompt) | 0.79 | [0.64, 0.91] |
+| variant (anti_abstain prompt) | 0.64 | [0.48, 0.79] |
+
+Paired diff (variant − baseline): **−0.15**, 95% CI **[−0.27, −0.03]** —
+excludes 0.
+
+**Verdict: the anti-abstain prompt works.** One added sentence telling the
+model that a document needing translation isn't a reason to abstain cut
+EN2X false abstention by ~15 percentage points on these 4 languages, and
+the paired bootstrap CI rules out noise as the explanation. It doesn't
+close the gap (0.64 is still high -- the model still over-abstains on
+EN2X relative to MONO/MIXED for the same questions), so this is a real,
+partial fix, not a solved problem. Worth carrying into v2 as the default
+EN2X prompt, and worth testing whether it generalizes to the other 4
+languages and to X2EN, which weren't in scope for this run.
