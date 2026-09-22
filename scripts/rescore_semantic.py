@@ -4,9 +4,9 @@ embedding similarity, to measure how much of the deterministic scorer's
 scoring undercounts true correctness) closes once synonyms are allowed.
 
 Supplements, does not replace, the deterministic scorer: `answer_correct`
-in the source parquet is untouched, and AGENTS.md's v1 metrics stay
-deterministic. This only adds a second, explicitly-labeled column so both
-numbers can be reported side by side.
+in the source parquet is untouched, and v1's metrics stay deterministic
+(see README.md's "Engineering constraints"). This only adds a second,
+explicitly-labeled column so both numbers can be reported side by side.
 
 Only rescoring answer_correct == False rows is deliberate, not a
 shortcut: the scorer's known failure mode (from the judge review) is

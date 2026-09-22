@@ -2,7 +2,7 @@
 
 NOT YET RUN AGAINST THE LIVE DATASET. This repo was scaffolded in a sandbox
 with no egress to huggingface.co (org policy denial, not a code bug — see
-AGENTS.md). Run `inspect_schema()` first thing on a machine with internet,
+README.md). Run `inspect_schema()` first thing on a machine with internet,
 eyeball 3 rows, and confirm the column names and language config codes below
 still match before trusting anything downstream.
 """

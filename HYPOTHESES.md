@@ -205,8 +205,9 @@ similarity is a viable supplement to literal-recall scoring for exactly the
 failure mode found in the judge review.
 
 **Not done, deliberately:** wiring this into `scoring.py`'s default
-`is_correct()` path -- AGENTS.md's v1 metrics are judge-free by design, and
-n=6 validates the *concept* (the two groups separate), not a precise
+`is_correct()` path -- v1's metrics are judge-free by design (README.md's
+"Engineering constraints"), and n=6 validates the *concept* (the two
+groups separate), not a precise
 production threshold; that needs a larger labeled set, ideally pulled from
 the same judge-review process at greater scale.
 
