@@ -8,31 +8,63 @@ citation — instead of reporting one opaque accuracy number per language.
 Pre-registered hypotheses: [`HYPOTHESES.md`](HYPOTHESES.md) (committed before
 any real run, so results can't be quietly reframed to fit them).
 
-## Status: engineering complete, first real run still pending
+## Status: first real run complete (MONO condition validated)
 
-This repo was built in a single day inside a sandboxed Claude Code session
-with **no network access to `huggingface.co` or `api.cohere.com`**
-(confirmed org egress policy denials, not a bug). That means:
+This repo was scaffolded in a single day inside a sandboxed Claude Code
+session with **no network access to `huggingface.co` or `api.cohere.com`**
+(confirmed org egress policy denials, not a bug), then run for real on a
+laptop with internet and a Cohere trial key. `make reproduce` (dry-run,
+fixture data + fake transport) proves the pipeline's wiring; `make
+reproduce-live` has now actually run against real Belebele data and a real
+Cohere key (507 calls, well under the 1,000/month trial budget).
 
-- Every module below is real, working code, exercised by 72 passing unit
-  tests and one full dry run of the whole pipeline (retrieval -> rerank ->
-  generation -> scoring -> attribution -> figures) against a small synthetic
-  fixture dataset and a deterministic fake Cohere transport.
-- Nobody has run it against the **real Belebele dataset** or a **real
-  Cohere key** yet. `make reproduce` (dry-run) proves the wiring; the first
-  person with internet and a `COHERE_API_KEY` should run `make
-  reproduce-live` as PolyCite's actual first real run, expect small
-  surprises, and fix them (see the checklist below).
+The first live run surfaced three real bugs, all found by hand-inspecting
+actual model output against gold answers (`scripts/inspect_results.py`) and
+all now fixed and covered by regression tests:
+- Cohere rejects document ids over 100 chars; our URL-based passage ids
+  routinely exceeded that (`generate/cohere_chat.py`).
+- Answer scoring used symmetric F1, which penalizes a verbose-but-correct
+  answer for every extra word — switched to gold-recall
+  (`generate/scoring.py`).
+- Arabic-specific: ASCII-only punctuation stripping missed Arabic
+  punctuation, and Arabic's attached definite article "ال" broke exact-word
+  matches in both directions — both fixed with Unicode-aware normalization
+  and a light per-token article strip.
 
-This is the honest state of the project, not a hedge: the code you'd want
-someone to have written *before* spending trial-key budget is exactly what's
-here.
+**MONO-condition answer correctness after all three fixes** (8 languages x
+~9 answerable questions each, 95% bootstrap CIs are wide at this sample
+size — see the "First real run checklist" before treating this as final):
+
+| Tier | Language | Correct | Post-rerank Recall@5 |
+|---|---|---|---|
+| High | eng_Latn | 0.78 | 1.00 |
+| High | zho_Hans | 0.67 | 0.89 |
+| High | arb_Arab | 0.67 | 1.00 |
+| High | fra_Latn | 0.50 | 1.00 |
+| Mid | hin_Deva | 0.12 | 0.75 |
+| Mid | ben_Beng | 0.11 | 0.78 |
+| Low | swh_Latn | 0.29 | 0.86 |
+| Low | yor_Latn | 0.00 | 0.56 |
+
+Directionally consistent with H1/H2: correctness degrades roughly by tier,
+and Yoruba (outside Command's core supported languages) fails completely
+even on the ~half of questions where the gold passage was retrieved —
+suggesting a real generation-quality gap, not just a retrieval gap, is
+worth investigating for that language specifically. X2EN/EN2X/MIXED
+conditions and the full 320-row attribution breakdown have also been run
+(`results/live_results.parquet`) but not yet written up here.
+
+**Not yet checked**, so hold these loosely: French's 0.50 hasn't been
+hand-inspected the way Arabic and English were, and French has the same
+general risk class as Arabic (elided articles like `l'eau` glue onto the
+next word); sample size per language (~9 answerable questions) gives wide
+CIs — this is a v1 pilot, not the full n=300/language design.
 
 ## Quickstart
 
 ```bash
 make install          # python3 -m pip install -r requirements.txt
-make test              # 72 unit tests, no network or API key needed
+make test              # 82 unit tests, no network or API key needed
 make reproduce          # full pipeline on fixture data + a fake Cohere transport, $0, no key needed
 ```
 
@@ -45,19 +77,26 @@ python3 -m polycite.data.belebele            # inspect_schema(): eyeball 3 rows 
 make reproduce-live                        # asks for confirmation before spending any calls
 ```
 
-### First real run checklist
-1. `python3 -m polycite.data.belebele` and confirm the column names in
-   `EXPECTED_COLUMNS` (`polycite/data/belebele.py`) and the 8 language config
-   codes in `configs/languages.yaml` still match the live dataset — both were
-   transcribed from memory/documentation, not re-verified against the HF
-   dataset card, because this sandbox couldn't reach it.
-2. Pin exact model version strings in `configs/experiment.yaml` from your
-   Cohere dashboard (`command-a-03-2025` etc. are placeholders).
-3. Watch `cache/call_count.json` — it persists your spend against the
-   1,000-call/month trial budget across runs and crashes.
-4. Expect the free-form-answer scoring (`generate/scoring.py`, SQuAD-style
-   token F1) to need threshold tuning once you see real model outputs; see
-   Limitations below.
+### First real run checklist (done, kept here as a record)
+1. ✅ `python3 -m polycite.data.belebele` schema matched `EXPECTED_COLUMNS`
+   exactly on the first try — no loader fix needed.
+2. ✅ `command-a-03-2025` confirmed present via `client.models.list()`;
+   `embed-v4.0` was NOT on the trial account's model list and was swapped
+   for `embed-multilingual-v3.0`. `rerank-v3.5` worked in practice (a real
+   rerank call would have crashed loudly if it didn't).
+3. ✅ `cache/call_count.json` tracked spend correctly across the 3 re-runs
+   it took to land on working scoring; each re-run after the first replayed
+   entirely from cache (0 new API calls) since only local scoring logic
+   changed, not the underlying prompts/model calls.
+4. ✅ Free-form scoring needed real fixing, not just threshold tuning — see
+   "Status" above and Limitations below for what was found and fixed.
+
+If you're the next person running this fresh: rerun `make reproduce-live`
+and compare against the correctness table in "Status" above before assuming
+anything here still holds — Cohere's model catalog and Belebele's schema can
+both change, and `results/*.parquet` is gitignored (regenerated locally,
+never committed), so this README is the only durable record of what a past
+run found.
 
 ## What this measures
 
@@ -96,18 +135,20 @@ polycite/
   testing.py             deterministic fake Cohere transport, shared by tests and --mode dry-run
 scripts/run_pipeline.py  orchestrator: make reproduce / make reproduce-live
 configs/                 languages.yaml, experiment.yaml
-tests/                   72 tests, all offline/mocked
+tests/                   82 tests, all offline/mocked
 cache/ results/ figures/ gitignored contents, regenerated by the pipeline
 ```
 
 ## Known v1 limitations (by design, not oversight)
 
-- **No LLM-judge grading yet.** Answer correctness is SQuAD-style token F1
-  against the gold option text, thresholded at 0.5 — a real but imperfect
-  proxy that degrades for CJK (character-overlap fallback) and for
-  morphologically rich languages where a correct paraphrase has low token
-  overlap. Judge validation against native-speaker labels (RQ4 in the full
-  plan) is v2 scope.
+- **No LLM-judge grading yet.** Answer correctness is gold-recall (does the
+  gold option text's content appear in the free-form answer), thresholded at
+  0.6 — a real but imperfect proxy that degrades for CJK (character-overlap
+  fallback) and for morphologically rich languages where a correct
+  paraphrase shares few surface tokens. Arabic's specific normalization gaps
+  (punctuation, attached definite article) are fixed; other languages'
+  equivalent gaps (e.g. French elision) have not been hand-checked. Judge
+  validation against native-speaker labels (RQ4 in the full plan) is v2 scope.
 - **Language-fidelity detection is Unicode-script-based**
   (`analysis/language_id.py`), not a real langid model (GlotLID/fastText need
   an HF download this sandbox couldn't reach). It correctly separates the 4
@@ -120,9 +161,11 @@ cache/ results/ figures/ gitignored contents, regenerated by the pipeline
   natural pooling across 8 languages (~3,900) as the hard retrieval test,
   instead of a 20K-passage-per-language corpus — that would burn the whole
   trial-key embed budget for one experiment.
-- **Generation sampled to 50 questions/language** (configs/experiment.yaml
-  `budget.generation_questions_per_language`) to fit a 1,000-call/month trial
-  key across 8 languages x 4 conditions; the full design calls for 300.
+- **Generation sampled to 10 questions/language** (configs/experiment.yaml
+  `budget.generation_questions_per_language`) so 8 languages x 4 conditions
+  fits comfortably inside a 1,000-call/month trial key (~640 calls); the
+  full design calls for 300/language. Small n means wide bootstrap CIs —
+  don't over-read single-digit-percentage differences yet.
 
 ## Roadmap to v2 (once real numbers exist and/or a Cohere Labs Catalyst Grant lands)
 - LLM-judge validation against ~480 native-speaker labels, per-language kappa.
