@@ -130,12 +130,34 @@ zero new API calls to reverify); H3's refutation and the "BM25 can't
 cross languages" conclusion both survive with corrected numbers — see
 `HYPOTHESES.md`'s "Correction" section for exactly what changed.
 
-All 4 conditions have now been run for real (862 calls total after the
+All 4 conditions have now been run for real (868 calls total after the
 corrections, well under the 1,000/month trial budget) and their full
 attribution breakdown and correctness heatmap are reproducible via
 `scripts/inspect_results.py`. `results/*.parquet` is gitignored and
 local-only — this README and `HYPOTHESES.md`'s verdicts section are the
 durable record.
+
+### Why does reading_failure stay high even once retrieval is fixed?
+
+Read every `reading_failure` case (`scripts/list_reading_failures.py`, 133
+rows / ~25-30 distinct questions) as an ad-hoc single-LLM judge (a
+lightweight, honestly-caveated stand-in for RQ4's real native-speaker
+judge validation — full writeup in `HYPOTHESES.md`). Three distinct things
+are bundled into that one attribution bucket:
+
+1. **False abstention**, concentrated specifically in EN2X — the model
+   answers `NO_ANSWER` on answerable questions far more when reading a
+   foreign document and answering in English than for the same question in
+   MONO/MIXED. A real, testable finding, not chased further today.
+2. **Genuinely wrong answers** — the majority, including MCQ items where
+   the model confidently picks a different plausible wrong answer than
+   Belebele's gold label.
+3. **Correct answers the deterministic scorer still misses on synonyms** —
+   3 clear Arabic cases (e.g. "root of problems" vs. gold "cause of
+   problems") out of ~25-30 questions reviewed, ~10-17% disagreement.
+   Unlike the earlier Arabic bugs, this isn't regex-fixable: literal
+   token-overlap scoring can't detect synonyms. **Every correctness number
+   in this README is a floor, not a precise estimate**, for this reason.
 
 **Not yet checked**, so hold these loosely: French's 0.50 (MONO) hasn't been
 hand-inspected the way Arabic and English were, and French has the same

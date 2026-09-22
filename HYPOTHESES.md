@@ -125,3 +125,53 @@ correctness only 0.44) -- once retrieval stops being the bottleneck,
 document most of the time and still often answers it wrong. That's a
 distinct, real finding worth its own investigation, not solved by this
 intervention and out of scope for today.
+
+## RQ4, minimally: single-LLM-judge read of the reading_failure cases (2026-09-22)
+
+`scripts/list_reading_failures.py` dumped every `reading_failure`/
+`citation_failure` row (133 total, ~25-30 distinct underlying questions
+once de-duplicated across conditions) from both the BM25 baseline and the
+Phase 6 dense run. Claude (this session, not a separate API call, not a
+native speaker, not RQ4's full design) read each one against its gold
+answer and judged correctness independently of the deterministic scorer.
+This is NOT the real RQ4 experiment -- no native-speaker labels, one judge,
+small unblinded sample -- but it's a free, honest, directional data point
+in the meantime.
+
+**Three failure categories emerged, and they are not the same problem:**
+
+1. **False abstention (NO_ANSWER on an answerable question), ~9 distinct
+   cases, judge agrees these are real failures.** Notably concentrated in
+   EN2X specifically (Visa, Blended Learning, Communication Theory,
+   Fukushima, Machu Picchu, Cold War, South Asian cuisine all abstained
+   only in EN2X, not in MONO/MIXED for the same question) -- suggestive
+   that reading a foreign-language document and answering in English makes
+   the model more conservative, not just less accurate. Worth testing
+   directly in v2 (compare abstention rate by condition, controlling for
+   difficulty).
+2. **Genuinely wrong answers, the majority, judge agrees with the scorer.**
+   Including several "which option is NOT an example" MCQ items where the
+   model picked a different, also-plausible wrong answer than Belebele's
+   labeled one (Communication Theory, Nature Tourism) -- a real reading
+   failure, not a labeling ambiguity worth chasing further.
+3. **Semantically correct answers the deterministic scorer still misses,
+   3 clear + 2 borderline out of ~25-30 questions (roughly 10-17%
+   disagreement).** All 3 clear cases are Arabic synonym pairs the
+   gold-recall metric can't detect because it requires literal token
+   overlap: "جذور" (root) vs. gold "سبب" (cause); "متميز" (distinguished)
+   vs. gold "ممتاز" (excellent); "أكبر" (greater) vs. gold "مزيد"
+   (more). Unlike the earlier Arabic punctuation/article bugs (regex-
+   fixable normalization bugs), this is a **synonym-blindness limitation
+   intrinsic to any literal-token-overlap metric** -- not fixable with
+   another normalization patch. It would need either a real LLM judge (the
+   full RQ4 design) or embedding-similarity scoring (Cohere Embed is
+   already wired into this pipeline for retrieval; reusing it to score
+   prediction-vs-gold semantic similarity is the natural, low-effort v2
+   extension) as a supplement to, not full replacement for, literal recall.
+
+**Implication for every correctness number reported above:** treat them as
+a floor, not a precise estimate. The deterministic scorer very likely
+undercounts true correctness by something in the 10-17% range found here,
+concentrated in languages/answers where a correct paraphrase doesn't share
+the gold answer's exact root words -- exactly the risk flagged as unchecked
+for French elsewhere in this file, and probably not unique to Arabic.
