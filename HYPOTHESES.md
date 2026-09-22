@@ -36,3 +36,40 @@ reframed to fit whatever comes out.
   worth highlighting.
 - H5 falsified if fertility ratios cluster near 1.0 — would undercut part of
   the "language tax" framing in the write-up.
+
+## Verdicts (first real run, 2026-09-22, n≈9-10/language, 8 languages x 4 conditions, Command A + BM25 + Rerank v3.5)
+
+Sample size is small (pilot, not the full n=300/language design) — treat
+percentages as directional, not precise. `results/live_results.parquet` is
+gitignored/local-only; these verdicts are the durable record.
+
+- **H1: SUPPORTED, but incompletely.** Yoruba's MONO failures are a mix of
+  real retrieval misses (~44%) and reading failures (~56%) — retrieval is
+  large but not clearly larger than reading+citation combined as stated, so
+  this is "retrieval matters a lot" rather than a clean win on the strict
+  wording.
+- **H2: SUPPORTED.** MONO correctness: high tier 0.50–0.78, low tier
+  0.00–0.29 — a 21–78pp gap depending on which low-tier language, well past
+  the 15pp bar, though small-n CIs are wide (see README).
+- **H3: REFUTED AND REVERSED.** EN2X correctness beat X2EN for both
+  swh_Latn (0.14 vs 0.00) and yor_Latn (0.11 vs 0.00) — the opposite
+  ordering from what was predicted. Root cause on inspection: X2EN's
+  retrieval_failure rate is 70–100% for every non-English language (BM25
+  essentially never matches a non-English query against English documents
+  lexically) — the bottleneck is retrieval failing to cross the language
+  boundary in either direction, not an asymmetry in embedding quality
+  between directions as H3's rationale assumed.
+- **H4: REFUTED, and for the same underlying reason as H3.** MIXED-condition
+  retrieval showed ~92-100% same-language passages for every non-English
+  query (no English over-representation) — because BM25 (pure lexical
+  matching) essentially never retrieves across a script/language boundary
+  at all. H3 and H4 turn out to be the same finding: **the dominant
+  bottleneck in this pipeline is that lexical (BM25) retrieval cannot
+  bridge languages, in any direction, not generation quality or embedding
+  bias.** This is a stronger, more specific, more actionable claim than
+  either original hypothesis and points directly at the Phase 6
+  intervention (dense/embedding retrieval or translate-then-retrieve) as
+  the fix to test next, rather than at prompting or model choice.
+- **H5: NOT YET TESTED.** Tokenizer fertility measurement
+  (`analysis/tokenizer_fertility.py`) has not been run against the live
+  Cohere tokenize endpoint yet.

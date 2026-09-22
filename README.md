@@ -8,7 +8,7 @@ citation — instead of reporting one opaque accuracy number per language.
 Pre-registered hypotheses: [`HYPOTHESES.md`](HYPOTHESES.md) (committed before
 any real run, so results can't be quietly reframed to fit them).
 
-## Status: first real run complete (MONO condition validated)
+## Status: first real run complete, all 4 conditions validated
 
 This repo was scaffolded in a single day inside a sandboxed Claude Code
 session with **no network access to `huggingface.co` or `api.cohere.com`**
@@ -16,7 +16,8 @@ session with **no network access to `huggingface.co` or `api.cohere.com`**
 laptop with internet and a Cohere trial key. `make reproduce` (dry-run,
 fixture data + fake transport) proves the pipeline's wiring; `make
 reproduce-live` has now actually run against real Belebele data and a real
-Cohere key (507 calls, well under the 1,000/month trial budget).
+Cohere key (647 calls across all 4 conditions, well under the 1,000/month
+trial budget).
 
 The first live run surfaced four real bugs, all found by hand-inspecting
 actual model output against gold answers (`scripts/inspect_results.py`) and
@@ -64,28 +65,49 @@ even on the ~half of questions where the gold passage was retrieved —
 suggesting a real generation-quality gap, not just a retrieval gap, is
 worth investigating for that language specifically.
 
-**H4 (MIXED-condition language bias) looks refuted, but for an interesting
-reason.** Checked with `scripts/inspect_results.py`'s language-bias section:
-in the pooled 8-language MIXED corpus, retrieval essentially never crosses
-languages (Arabic queries retrieve ~100% Arabic passages, Yoruba ~92%
-Yoruba, etc.) — not the hypothesized English over-representation. This
-makes sense once you remember retrieval here is BM25, pure lexical
-matching: a query in Arabic script has ~zero token overlap with English
-documents, so lexical retrieval is language-siloed rather than
-English-biased. Worth re-testing with Cohere Embed (dense/semantic
-retrieval) once that's wired into the pipeline, since embedding-based
-retrieval might show the originally-hypothesized bias where BM25 can't.
+### The headline finding: H3 and H4 are the same bug
 
-X2EN and the full attribution breakdown have been run once; EN2X needs
-re-running after the bug fix above before its numbers mean anything (see
-"First real run checklist"). `results/live_results.parquet` is gitignored
-and local-only, not part of this repo's history.
+Both cross-lingual hypotheses were wrong in a way that converges on one
+answer. Full verdicts and numbers in [`HYPOTHESES.md`](HYPOTHESES.md);
+summary here:
 
-**Not yet checked**, so hold these loosely: French's 0.50 hasn't been
+- **H4 predicted** the MIXED condition's retrieval would over-represent
+  English passages. It doesn't — it retrieves ~92-100% *same-language*
+  passages for every non-English query (Arabic 100%, Yoruba 92%, etc). No
+  English bias at all.
+- **H3 predicted** X2EN (local query -> English docs) would outperform EN2X
+  (English query -> local docs) for low-resource languages. It's the
+  opposite: EN2X beat X2EN for both Swahili (0.14 vs 0.00) and Yoruba (0.11
+  vs 0.00).
+- **Why both: X2EN's retrieval_failure rate is 70-100% for every
+  non-English language.** BM25 — pure lexical/keyword matching — essentially
+  never matches a query against documents in a different language or
+  script, in either direction. That's not a bias toward English; it's a
+  wall between languages. H3's asymmetry didn't show up because both
+  directions are already near-total retrieval failures, and H4's bias
+  didn't show up because nothing crosses the language boundary to begin
+  with, English included.
+
+**The single dominant bottleneck this pilot found is that lexical (BM25)
+retrieval cannot bridge languages at all — not generation quality, not
+English bias, not prompting.** That's a sharper, more testable claim than
+either original hypothesis, and it points directly at the plan's Phase 6
+intervention (dense/embedding retrieval via Cohere Embed, or a
+translate-then-retrieve pivot) as the fix worth testing next, rather than
+at model choice or prompt engineering.
+
+All 4 conditions have now been run for real (647 calls total, well under
+the 1,000/month trial budget) and their full attribution breakdown and
+correctness heatmap are reproducible via `scripts/inspect_results.py`.
+`results/live_results.parquet` is gitignored and local-only — this README
+and `HYPOTHESES.md`'s verdicts section are the durable record.
+
+**Not yet checked**, so hold these loosely: French's 0.50 (MONO) hasn't been
 hand-inspected the way Arabic and English were, and French has the same
 general risk class as Arabic (elided articles like `l'eau` glue onto the
-next word); sample size per language (~9 answerable questions) gives wide
-CIs — this is a v1 pilot, not the full n=300/language design.
+next word); sample size per language (~9-10 questions) gives wide CIs —
+this is a v1 pilot, not the full n=300/language design; H5 (tokenizer
+fertility) hasn't been run yet.
 
 ## Quickstart
 
