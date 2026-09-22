@@ -364,7 +364,3 @@ mismatch).
 - The intervention phase: dual-query retrieval / translate-pivot baseline,
   reporting "closes X% of the gap at +Y ms, +$Z/1k queries."
 - Fresh, post-training-cutoff question split per language as a contamination check.
-
-## License note
-Belebele and MIRACL each carry their own license — check and credit both
-before publishing any derived dataset built from real (non-fixture) data.
