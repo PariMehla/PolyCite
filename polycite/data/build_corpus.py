@@ -123,12 +123,21 @@ def apply_unanswerable_split(
     return corpus_passages, annotated
 
 
-def corpus_excluding_gold(corpus: Corpus, question: dict, condition: str) -> dict[str, dict]:
+def corpus_excluding_gold(corpus: Corpus, question: dict, condition: str, gold_passage_id: str | None = None) -> dict[str, dict]:
     """The passage pool a retriever sees for one question, honoring the
-    unanswerable split by dropping that question's gold passage."""
+    unanswerable split by dropping the correct gold passage for THIS
+    condition. `gold_passage_id` defaults to question["passage_id"], which
+    is right for MONO/MIXED/EN2X (all search a pool containing the
+    question's own-language passage) but WRONG for X2EN, which searches an
+    English-only pool -- the question's own passage_id (in language L) can
+    never appear there, so excluding it would silently no-op. Callers doing
+    X2EN must pass the real English-language gold_passage_id (see
+    Corpus.english_query_for) explicitly."""
     pool = corpus.index_for(condition, question["language"])
+    if gold_passage_id is None:
+        gold_passage_id = question["passage_id"]
     if question.get("is_unanswerable"):
-        pool = {pid: p for pid, p in pool.items() if pid != question["passage_id"]}
+        pool = {pid: p for pid, p in pool.items() if pid != gold_passage_id}
     return pool
 
 

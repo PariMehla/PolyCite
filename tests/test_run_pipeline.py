@@ -53,6 +53,47 @@ def test_en2x_display_language_is_corpus_language_others_are_query_language(tmp_
         assert r["display_language"] == r["query_language"]
 
 
+def test_x2en_gold_passage_id_is_the_english_counterpart_not_the_original_language(tmp_path):
+    # Regression test for a real bug: X2EN searches an English-only corpus,
+    # but gold_passage_id was left as question["passage_id"] (in language
+    # L). An L-language passage_id can never appear in an English-only
+    # pool, so retrieved_top50/reranked_top5/citations were silently graded
+    # against an impossible target -- retrieval_failure fired near-100% of
+    # the time regardless of whether retrieval was actually any good. Found
+    # by comparing BM25 vs. dense retrieval X2EN results and finding them
+    # suspiciously, exactly identical.
+    corpus = build_fixture_corpus()
+    client = CohereClient(cache_dir=tmp_path, transport=fake_transport, budget=10_000)
+    rows, _ = run_condition(client, corpus, "X2EN", "fake-rerank", "fake-chat")
+    assert len(rows) > 0
+    for r in rows:
+        assert r["gold_passage_id"].startswith("eng_Latn") or "eng_Latn" in r["gold_passage_id"]
+
+
+def test_x2en_gold_passage_id_is_actually_findable_in_the_english_pool(tmp_path):
+    # Stronger version of the above: not just "looks English", but is
+    # actually present in the pool X2EN searches, so a good retriever CAN
+    # succeed (the whole point of the fix).
+    corpus = build_fixture_corpus()
+    client = CohereClient(cache_dir=tmp_path, transport=fake_transport, budget=10_000)
+    english_pool_ids = {pid for pid, p in corpus.passages.items() if p["language"] == "eng_Latn"}
+    rows, _ = run_condition(client, corpus, "X2EN", "fake-rerank", "fake-chat")
+    for r in rows:
+        if not r["is_unanswerable"]:
+            assert r["gold_passage_id"] in english_pool_ids
+
+
+def test_x2en_gold_answer_and_query_stay_in_the_original_language(tmp_path):
+    # The gold_passage_id fix must NOT change what language the query is
+    # posed in or what language the answer is graded against -- only which
+    # passage_id retrieval is checked against.
+    corpus = build_fixture_corpus()
+    client = CohereClient(cache_dir=tmp_path, transport=fake_transport, budget=10_000)
+    rows, _ = run_condition(client, corpus, "X2EN", "fake-rerank", "fake-chat")
+    by_language = {r["query_language"] for r in rows}
+    assert len(by_language) > 1  # X2EN still varies by query language, unlike EN2X
+
+
 def test_bm25_retrieve_returns_only_ids_from_pool():
     corpus = build_fixture_corpus()
     pool = {pid: p for pid, p in corpus.passages.items() if p["language"] == "eng_Latn"}

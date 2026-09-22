@@ -115,21 +115,42 @@ def run_condition(
         retrieve_fn = bm25_retrieve
     rows = []
     for question in corpus.questions:
+        # Belebele is parallel: the same question exists in every language
+        # under the same (link, question_number) key, so this is a free
+        # local lookup regardless of whether this condition needs it.
+        english_q = corpus.english_query_for(question)
+
         if condition == "EN2X":
             # EN2X means "an English query over a foreign-language corpus" --
             # query_text must actually BE English, not the original-language
-            # question relabeled as English (a real bug this fixes; see
-            # README.md "Status"). Belebele is parallel, so the same
-            # question exists in English under the same (link,
-            # question_number) key.
-            english_q = corpus.english_query_for(question)
+            # question relabeled as English (a real bug fixed earlier; see
+            # README.md "Status"). The corpus being searched is language L,
+            # so the gold passage stays question["passage_id"] (in L).
             query_text = english_q["question"]
             query_language = "eng_Latn"
             gold_answer = english_q["options"][english_q["answer_index"]]
-        else:
+            gold_passage_id = question["passage_id"]
+        elif condition == "X2EN":
+            # X2EN searches an English-only corpus, so the gold passage must
+            # be the ENGLISH counterpart (english_q["passage_id"]), not
+            # question["passage_id"] (in L) -- an L-language passage_id can
+            # never appear in an English-only pool, which silently forced
+            # retrieved_top50/reranked_top5/citations to "fail" against an
+            # impossible target regardless of actual retrieval quality (a
+            # real bug found by comparing BM25 vs. dense retrieval results
+            # for X2EN and finding them suspiciously identical -- both were
+            # being graded against a passage neither could ever find). The
+            # query and gold *answer* stay in L, since that's the language
+            # the model is asked to answer in.
             query_text = question["question"]
             query_language = question["language"]
             gold_answer = question["options"][question["answer_index"]]
+            gold_passage_id = english_q["passage_id"]
+        else:  # MONO, MIXED
+            query_text = question["question"]
+            query_language = question["language"]
+            gold_answer = question["options"][question["answer_index"]]
+            gold_passage_id = question["passage_id"]
 
         corpus_language = {
             "MONO": question["language"],
@@ -138,7 +159,7 @@ def run_condition(
             "MIXED": "ALL",
         }[condition]
 
-        pool = corpus_excluding_gold(corpus, question, condition)
+        pool = corpus_excluding_gold(corpus, question, condition, gold_passage_id=gold_passage_id)
         if len(pool) < 2:
             continue  # fixture corpus is tiny; skip degenerate pools
 
@@ -160,7 +181,7 @@ def run_condition(
             abstained=result["abstained"],
             cited_ids=result["cited_passage_ids"],
             gold_answer=gold_answer,
-            gold_passage_id=question["passage_id"],
+            gold_passage_id=gold_passage_id,
             language=query_language,
             is_unanswerable=question["is_unanswerable"],
         )
@@ -176,7 +197,7 @@ def run_condition(
             "display_language": corpus_language if condition == "EN2X" else query_language,
             "condition": condition,
             "is_unanswerable": question["is_unanswerable"],
-            "gold_passage_id": question["passage_id"],
+            "gold_passage_id": gold_passage_id,
             "retrieved_top50": retrieved_ids,
             "reranked_top5": reranked_ids,
             "answer_correct": score["answer_correct"],

@@ -73,3 +73,26 @@ def test_english_query_for_english_question_returns_itself():
     looked_up = corpus.english_query_for(eng_question)
     assert looked_up["question"] == eng_question["question"]
     assert looked_up["link"] == eng_question["link"]
+
+
+def test_corpus_excluding_gold_uses_explicit_gold_passage_id_when_given():
+    # Regression test: X2EN needs to exclude the ENGLISH gold passage (not
+    # question["passage_id"], which is in language L and can never appear
+    # in an English-only pool -- excluding it would silently no-op).
+    corpus = build_fixture_corpus(unanswerable_fraction=1.0, seed=1)
+    yor_question = next(q for q in corpus.questions if q["language"] == "yor_Latn")
+    english_gold_id = corpus.english_query_for(yor_question)["passage_id"]
+
+    pool = corpus_excluding_gold(corpus, yor_question, "X2EN", gold_passage_id=english_gold_id)
+    assert english_gold_id not in pool
+    # the L-language passage_id was never in an X2EN (English-only) pool anyway
+    assert yor_question["passage_id"] not in pool
+
+
+def test_corpus_excluding_gold_default_still_uses_questions_own_passage_id():
+    # Backward-compatible default for MONO/MIXED/EN2X, which don't need to
+    # override gold_passage_id.
+    corpus = build_fixture_corpus(unanswerable_fraction=1.0, seed=1)
+    question = corpus.questions[0]
+    pool = corpus_excluding_gold(corpus, question, "MONO")
+    assert question["passage_id"] not in pool
