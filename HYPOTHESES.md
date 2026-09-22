@@ -203,12 +203,28 @@ it validates `polycite/generate/semantic_scoring.py`'s approach: embedding
 similarity is a viable supplement to literal-recall scoring for exactly the
 failure mode found in the judge review.
 
-**Not yet done, deliberately:** wiring this into `scoring.py`'s default
-`is_correct()` path. n=6 is enough to validate the *concept* (the two
-groups separate), not enough to trust 0.545 as a precise production
-threshold -- that needs a larger labeled set, ideally pulled from the same
-judge-review process at greater scale. Treat this as "the fix direction is
-confirmed" rather than "the fix is shipped."
+**Not done, deliberately:** wiring this into `scoring.py`'s default
+`is_correct()` path -- CLAUDE.md's v1 metrics are judge-free by design, and
+n=6 validates the *concept* (the two groups separate), not a precise
+production threshold; that needs a larger labeled set, ideally pulled from
+the same judge-review process at greater scale.
+
+**Done:** `scripts/rescore_semantic.py` (new, unit-tested, zero Cohere
+calls in tests) applies `DEFAULT_SEMANTIC_THRESHOLD = 0.545` to an entire
+results parquet as an explicit, separate supplement -- it rescores only
+`answer_correct == False, not abstained` rows (the scorer's known failure
+mode is false negatives on synonyms, not false positives, so there's no
+evidence rescoring already-correct rows would change anything), batches
+Cohere Embed calls at 48 pairs/call, goes through `estimate_and_confirm()`
+like every other batch job, and reports literal-recall vs. semantic-
+adjusted correctness side by side without mutating the original
+`answer_correct` column. This is the fix, runnable end to end -- what's
+still open is running it against the real live-run parquet and recording
+how much of the correctness floor it closes, which needs a machine with
+both the result file and remaining trial-key budget:
+```
+python3 scripts/rescore_semantic.py results/live_results.parquet
+```
 
 ### Fix attempt 2: anti-abstention prompt for EN2X false abstention (finding #1)
 

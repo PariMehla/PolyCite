@@ -20,7 +20,14 @@ from __future__ import annotations
 
 import math
 
-from polycite.cohere_client import CohereClient
+from polycite.cohere_client import EMBED_MAX_TEXTS_PER_CALL, CohereClient
+
+# Validated against a hand-labeled set (scripts/test_semantic_scoring.py,
+# 2026-09-22): RIGHT (known-correct-synonym) cases ranged 0.563-0.583,
+# WRONG (known-genuinely-wrong) cases ranged 0.486-0.526, no overlap. This
+# threshold sits in the gap. n=6 validates the *concept* (the two groups
+# separate), not a precise production cutoff -- see scripts/rescore_semantic.py.
+DEFAULT_SEMANTIC_THRESHOLD = 0.545
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -47,3 +54,24 @@ def is_semantically_correct(
 ) -> tuple[bool, float]:
     sim = semantic_similarity(client, prediction, gold, model=model)
     return sim >= threshold, sim
+
+
+def batch_semantic_similarities(
+    client: CohereClient, pairs: list[tuple[str, str]], model: str = "embed-multilingual-v3.0"
+) -> list[float]:
+    """Cosine similarity for many (prediction, gold) pairs, batched at
+    Cohere Embed's max texts/call. Order-preserving: result[i] corresponds
+    to pairs[i]. Used by scripts/rescore_semantic.py to rescore an entire
+    results parquet without one embed call per row."""
+    if not pairs:
+        return []
+    max_pairs_per_call = EMBED_MAX_TEXTS_PER_CALL // 2
+    similarities: list[float] = []
+    for i in range(0, len(pairs), max_pairs_per_call):
+        chunk = pairs[i : i + max_pairs_per_call]
+        texts = [text for pair in chunk for text in pair]
+        resp = client.embed(model=model, input_type="classification", texts=texts)
+        vectors = resp["embeddings"]["float"]
+        for j in range(len(chunk)):
+            similarities.append(_cosine(vectors[2 * j], vectors[2 * j + 1]))
+    return similarities
