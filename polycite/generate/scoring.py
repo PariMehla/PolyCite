@@ -1,12 +1,23 @@
 """Deterministic generation scoring: no LLM judge in v1.
 
-Answer correctness uses SQuAD-style normalized token F1 between the
-free-form answer and the gold option text, thresholded at 0.5. This is a
-known-imperfect proxy — it degrades for languages without whitespace word
+Answer correctness is gold-recall: what fraction of the gold option text's
+tokens appear in the model's free-form answer, thresholded at 0.6 — not
+symmetric F1. This was an actual bug, not a design choice, found by hand-
+inspecting PolyCite v1's first live run: the prompt asks for one sentence,
+but the model routinely answers in a full explanatory sentence rather than
+echoing the gold phrase, e.g. gold "Energy" vs. prediction "...would create
+energy in the same way as stars...". Symmetric F1 penalizes every extra
+word in a verbose-but-correct answer through precision, so genuinely correct
+answers were scoring ~0. Recall alone (does the gold content appear
+somewhere in the answer) fixed this and, spot-checked against 6 real
+English MONO answers, still correctly rejects an off-topic answer that
+never states the gold fact at all.
+
+Still a known-imperfect proxy for languages without whitespace word
 boundaries (zho_Hans falls back to character overlap, which is coarser) and
-for morphologically rich languages where the model paraphrases correctly but
-token overlap is low. Flagged explicitly in the README as a v1 limitation;
-v2 adds LLM-judge validation against native-speaker labels (see plan RQ4).
+for morphologically rich languages where a correct paraphrase shares few
+surface tokens. Flagged in the README as a v1 limitation; v2 adds LLM-judge
+validation against native-speaker labels (see plan RQ4).
 """
 from __future__ import annotations
 
@@ -46,8 +57,22 @@ def token_f1(prediction: str, gold: str, language: str) -> float:
     return 2 * precision * recall / (precision + recall)
 
 
-def is_correct(prediction: str, gold: str, language: str, threshold: float = 0.5) -> bool:
-    return token_f1(prediction, gold, language) >= threshold
+def gold_recall(prediction: str, gold: str, language: str) -> float:
+    """What fraction of gold's tokens appear (with multiplicity) in prediction.
+    Unlike token_f1, does not penalize a verbose-but-correct answer for
+    containing extra words beyond the gold phrase."""
+    pred_tokens = _tokens(prediction, language)
+    gold_tokens = _tokens(gold, language)
+    if not gold_tokens:
+        return 1.0 if not pred_tokens else 0.0
+    if not pred_tokens:
+        return 0.0
+    num_same = sum(min(pred_tokens.count(t), gold_tokens.count(t)) for t in set(pred_tokens))
+    return num_same / len(gold_tokens)
+
+
+def is_correct(prediction: str, gold: str, language: str, threshold: float = 0.6) -> bool:
+    return gold_recall(prediction, gold, language) >= threshold
 
 
 def citation_precision_recall(cited_ids: set[str], gold_passage_id: str) -> tuple[float, float]:
