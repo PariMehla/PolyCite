@@ -18,27 +18,47 @@ boundaries (zho_Hans falls back to character overlap, which is coarser) and
 for morphologically rich languages where a correct paraphrase shares few
 surface tokens. Flagged in the README as a v1 limitation; v2 adds LLM-judge
 validation against native-speaker labels (see plan RQ4).
+
+Two more real bugs found the same way, both Arabic-specific: (1)
+`string.punctuation` is ASCII-only, so Arabic punctuation like "،" (U+060C)
+never got stripped, breaking exact matches like gold "بريطانيا" vs.
+prediction "بريطانيا،" purely over a trailing comma; fixed by stripping on
+Unicode punctuation category instead. (2) Arabic's definite article "ال" is
+a prefix glued directly onto the word ("أداء" -> "الأداء"), not a separate
+token like English "the", so it silently broke exact-word matches in either
+direction; fixed with a light per-token strip, the same technique light
+Arabic stemmers use.
 """
 from __future__ import annotations
 
 import re
-import string
 import unicodedata
+
+_ARABIC_DEFINITE_ARTICLE = "ال"
 
 
 def normalize_answer(text: str, language: str) -> str:
     text = unicodedata.normalize("NFC", text).lower().strip()
-    text = "".join(ch for ch in text if ch not in string.punctuation)
+    text = "".join(ch for ch in text if not unicodedata.category(ch).startswith("P"))
     if language == "eng_Latn":
         text = re.sub(r"\b(a|an|the)\b", " ", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _strip_arabic_article(token: str) -> str:
+    if token.startswith(_ARABIC_DEFINITE_ARTICLE) and len(token) > len(_ARABIC_DEFINITE_ARTICLE) + 1:
+        return token[len(_ARABIC_DEFINITE_ARTICLE):]
+    return token
 
 
 def _tokens(text: str, language: str) -> list[str]:
     normalized = normalize_answer(text, language)
     if language.startswith("zho"):
         return [c for c in normalized if not c.isspace()]
-    return normalized.split()
+    tokens = normalized.split()
+    if language == "arb_Arab":
+        tokens = [_strip_arabic_article(t) for t in tokens]
+    return tokens
 
 
 def token_f1(prediction: str, gold: str, language: str) -> float:

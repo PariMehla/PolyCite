@@ -30,6 +30,31 @@ def test_gold_recall_full_containment():
     assert gold_recall("nine in the morning", "nine in the morning", "eng_Latn") == 1.0
 
 
+def test_arabic_unicode_punctuation_is_stripped():
+    # Real bug: string.punctuation is ASCII-only, so the Arabic comma "،"
+    # (U+060C) survived normalization and broke an otherwise exact match.
+    assert normalize_answer("بريطانيا،", "arb_Arab") == "بريطانيا"
+
+
+def test_arabic_definite_article_is_stripped_like_english_the():
+    # Real bug found on PolyCite's first live run: gold "أداء ممتاز" vs. a
+    # correct prediction containing "الأداء الممتاز" scored 0 recall because
+    # Arabic's "ال" is glued onto the word, not a separate token.
+    assert is_correct(
+        "الأداء الممتاز لا يمكن تحقيقه فقط من خلال الممارسات الغذائية",
+        "أداء ممتاز",
+        "arb_Arab",
+    )
+
+
+def test_arabic_article_stripping_does_not_eat_short_tokens():
+    # Guard against stripping "ال" down to nothing or a 1-char token.
+    from polycite.generate.scoring import _strip_arabic_article
+
+    assert _strip_arabic_article("ال") == "ال"  # the word "al" itself: don't touch
+    assert _strip_arabic_article("الكتاب") == "كتاب"  # "the book" -> "book"
+
+
 def test_gold_recall_ignores_extra_words_in_prediction():
     # regression test: real bug found on PolyCite's first live run. Gold
     # "Energy" vs. a verbose-but-correct model answer scored 0 under F1
