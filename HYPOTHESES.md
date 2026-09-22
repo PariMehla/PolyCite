@@ -175,3 +175,76 @@ undercounts true correctness by something in the 10-17% range found here,
 concentrated in languages/answers where a correct paraphrase doesn't share
 the gold answer's exact root words -- exactly the risk flagged as unchecked
 for French elsewhere in this file, and probably not unique to Arabic.
+
+## Testing the two RQ4 findings as fixes, not just diagnoses (2026-09-22)
+
+Both findings above are open questions about model/scorer behavior, not
+code defects with one correct answer -- "fixing" them means running a
+small, falsifiable experiment, not editing a formula. Both experiments are
+committed and runnable inside the remaining trial-key budget.
+
+### Fix attempt 1: embedding-similarity scoring for synonym-blindness (finding #3)
+
+`scripts/test_semantic_scoring.py` validates Cohere Embed cosine similarity
+against a hand-labeled set from the judge review above: 3 known-correct-
+synonym cases the deterministic scorer missed (RIGHT) vs. 3 known-
+genuinely-wrong cases (WRONG), all 12 texts batched into one embed call.
+
+**Result: clean separation.**
+
+| Group | Cosine similarity range |
+|---|---|
+| RIGHT (synonym, scorer-missed) | 0.563 - 0.583 |
+| WRONG (genuinely off-topic) | 0.486 - 0.526 |
+
+No overlap; a threshold around **0.545** sits cleanly in the gap. This is a
+real, demonstrated result on real data (not a synthetic sanity check), and
+it validates `polycite/generate/semantic_scoring.py`'s approach: embedding
+similarity is a viable supplement to literal-recall scoring for exactly the
+failure mode found in the judge review.
+
+**Not yet done, deliberately:** wiring this into `scoring.py`'s default
+`is_correct()` path. n=6 is enough to validate the *concept* (the two
+groups separate), not enough to trust 0.545 as a precise production
+threshold -- that needs a larger labeled set, ideally pulled from the same
+judge-review process at greater scale. Treat this as "the fix direction is
+confirmed" rather than "the fix is shipped."
+
+### Fix attempt 2: anti-abstention prompt for EN2X false abstention (finding #1)
+
+`polycite/generate/prompts/answer_with_citations_anti_abstain.txt` adds one
+explicit rule: a document needing translation is never by itself a reason
+for `NO_ANSWER`. Run via `--prompt-variant anti_abstain`, scoped to the 4
+languages where EN2X false abstention was worst in the judge review
+(hin_Deva, yor_Latn, swh_Latn, ben_Beng), same sampled questions as the
+original run (same seed, same `--languages`/`--conditions` scoping, so
+retrieval/rerank calls hit cache -- only chat calls were new).
+
+**Raw result:** `false_abstention=0.64`, 95% CI [0.48, 0.79], n=33.
+
+**Verdict: not yet determined -- this number alone doesn't say whether the
+prompt helped.** It needs to be compared against the *original* EN2X
+false-abstention rate for these same 4 languages, not the all-8-language
+EN2X baseline `summarize()` reports (different, wider scope -- would be
+apples to oranges). That comparison wasn't possible before because
+`summarize()`'s false-abstention report only broke down by condition, not
+condition+language.
+
+`scripts/compare_abstention.py` (new, unit-tested, zero new Cohere calls --
+it only reads two existing result parquets) fixes that: it filters both
+runs to the same condition+language scope and reports a paired bootstrap
+diff when both runs cover the exact same question set. Run it against
+`results/live_results.parquet` (baseline) and
+`results/live_anti_abstain_results.parquet` (variant):
+
+```
+python3 scripts/compare_abstention.py \
+    results/live_results.parquet results/live_anti_abstain_results.parquet \
+    --condition EN2X --languages hin_Deva,yor_Latn,swh_Latn,ben_Beng
+```
+
+This step is left undone here because this environment does not have
+either result parquet (`results/` is gitignored and generated per-machine
+by a live run against a real Cohere key). Whoever has both files locally
+should run the command above and record the verdict (helped / hurt / no
+clear difference, with the paired-diff CI) in this section.
