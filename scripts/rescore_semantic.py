@@ -4,7 +4,7 @@ embedding similarity, to measure how much of the deterministic scorer's
 scoring undercounts true correctness) closes once synonyms are allowed.
 
 Supplements, does not replace, the deterministic scorer: `answer_correct`
-in the source parquet is untouched, and CLAUDE.md's v1 metrics stay
+in the source parquet is untouched, and AGENTS.md's v1 metrics stay
 deterministic. This only adds a second, explicitly-labeled column so both
 numbers can be reported side by side.
 

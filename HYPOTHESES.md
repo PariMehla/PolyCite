@@ -131,9 +131,10 @@ intervention and out of scope for today.
 `scripts/list_reading_failures.py` dumped every `reading_failure`/
 `citation_failure` row (133 total, ~25-30 distinct underlying questions
 once de-duplicated across conditions) from both the BM25 baseline and the
-Phase 6 dense run. Claude (this session, not a separate API call, not a
-native speaker, not RQ4's full design) read each one against its gold
-answer and judged correctness independently of the deterministic scorer.
+Phase 6 dense run. This session's AI coding assistant (not a separate API
+call, not a native speaker, not RQ4's full design) read each one against
+its gold answer and judged correctness independently of the deterministic
+scorer.
 This is NOT the real RQ4 experiment -- no native-speaker labels, one judge,
 small unblinded sample -- but it's a free, honest, directional data point
 in the meantime.
@@ -204,7 +205,7 @@ similarity is a viable supplement to literal-recall scoring for exactly the
 failure mode found in the judge review.
 
 **Not done, deliberately:** wiring this into `scoring.py`'s default
-`is_correct()` path -- CLAUDE.md's v1 metrics are judge-free by design, and
+`is_correct()` path -- AGENTS.md's v1 metrics are judge-free by design, and
 n=6 validates the *concept* (the two groups separate), not a precise
 production threshold; that needs a larger labeled set, ideally pulled from
 the same judge-review process at greater scale.

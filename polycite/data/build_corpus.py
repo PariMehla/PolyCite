@@ -23,7 +23,7 @@ class Corpus:
     # question, built from the FULL English question set (not the sampled
     # subset in `questions`) so every sampled non-English question has a
     # real English counterpart to look up for the EN2X condition. See
-    # scripts/run_pipeline.py's EN2X branch and CLAUDE.md's note on this bug.
+    # scripts/run_pipeline.py's EN2X branch and AGENTS.md's note on this bug.
     english_lookup: dict[tuple[str, int], dict] = field(default_factory=dict)
 
     def index_for(self, condition: str, query_language: str) -> dict[str, dict]:
@@ -160,7 +160,7 @@ def build_belebele_corpus(
     languages: list[str], unanswerable_fraction: float = 0.15, seed: int = 42, sample_per_language: int | None = None
 ) -> Corpus:
     """Requires internet + `pip install datasets` to reach huggingface.co.
-    Not runnable in the sandbox this repo was built in — see CLAUDE.md."""
+    Not runnable in the sandbox this repo was built in — see AGENTS.md."""
     from polycite.data.belebele import build_aligned_table
 
     df = build_aligned_table(languages)

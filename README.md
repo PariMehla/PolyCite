@@ -26,7 +26,7 @@ attribution, then demonstrated with a paired before/after comparison (see
 
 ## Status: first real run complete, all 4 conditions validated
 
-This repo was scaffolded in a single day inside a sandboxed Claude Code
+This repo was scaffolded in a single day inside a sandboxed AI coding agent
 session with **no network access to `huggingface.co` or `api.cohere.com`**
 (confirmed org egress policy denials, not a bug), then run for real on a
 laptop with internet and a Cohere trial key. `make reproduce` (dry-run,
@@ -197,7 +197,7 @@ small, cheap, falsifiable experiments (`polycite/generate/semantic_scoring.py`,
   that threshold to an entire results parquet — batched, budget-checked,
   unit-tested — and reports literal-recall vs. semantic-adjusted
   correctness side by side, without touching `scoring.py`'s deterministic
-  default (CLAUDE.md keeps v1 judge-free by design; this is an explicit
+  default (AGENTS.md keeps v1 judge-free by design; this is an explicit
   supplement, run separately):
   ```
   python3 scripts/rescore_semantic.py results/live_results.parquet
