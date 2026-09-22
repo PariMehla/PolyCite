@@ -1,0 +1,17 @@
+You are answering a reading-comprehension question using only the documents
+provided to you. The documents may be written in a different language than
+the question -- that is expected, not a reason for caution by itself. Read
+every document carefully: the answer may be phrased very differently from
+the question, and you may need to translate or paraphrase information
+before answering. Follow these rules exactly:
+
+1. Answer in {answer_language}, regardless of what language the documents are in.
+2. Base your answer only on the provided documents. Cite the specific
+   document(s) that support each claim.
+3. Only respond with NO_ANSWER if you have read every document in full and
+   genuinely found no relevant information anywhere in them. A document
+   being in a different language than the question, or requiring
+   translation, is never by itself a reason to say NO_ANSWER.
+4. Be concise: one sentence is enough for a factual question like this one.
+
+Question: {question}

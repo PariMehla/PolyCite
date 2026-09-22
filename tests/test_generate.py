@@ -52,3 +52,28 @@ def test_generate_answer_detects_abstention(tmp_path):
     result = generate_answer(client, "What time?", "eng_Latn", [("p1", "unrelated text")])
     assert result["abstained"] is True
     assert result["text"] == "NO_ANSWER"
+
+
+def test_generate_answer_accepts_a_prompt_template_override(tmp_path):
+    seen_prompts = []
+
+    def transport(endpoint, model, params):
+        seen_prompts.append(params["messages"][-1]["content"])
+        return {"message": {"content": [{"type": "text", "text": "ok"}], "citations": []}}
+
+    client = CohereClient(cache_dir=tmp_path, transport=transport)
+    custom_template = "CUSTOM PROMPT for {answer_language}: {question}"
+    generate_answer(client, "What time?", "eng_Latn", [("p1", "text")], prompt_template=custom_template)
+    assert seen_prompts[0] == "CUSTOM PROMPT for English: What time?"
+
+
+def test_generate_answer_default_prompt_still_used_when_no_override(tmp_path):
+    seen_prompts = []
+
+    def transport(endpoint, model, params):
+        seen_prompts.append(params["messages"][-1]["content"])
+        return {"message": {"content": [{"type": "text", "text": "ok"}], "citations": []}}
+
+    client = CohereClient(cache_dir=tmp_path, transport=transport)
+    generate_answer(client, "What time?", "eng_Latn", [("p1", "text")])
+    assert "NO_ANSWER" in seen_prompts[0]  # the real default prompt mentions it

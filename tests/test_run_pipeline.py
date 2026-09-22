@@ -12,6 +12,23 @@ def test_run_condition_completes_without_budget_pressure(tmp_path):
     assert len(rows) > 0
 
 
+def test_run_condition_threads_prompt_template_through_to_chat(tmp_path):
+    seen_prompts = []
+
+    def transport(endpoint, model, params):
+        if endpoint == "chat":
+            seen_prompts.append(params["messages"][-1]["content"])
+            return {"message": {"content": [{"type": "text", "text": "ok"}], "citations": []}}
+        return fake_transport(endpoint, model, params)
+
+    corpus = build_fixture_corpus()
+    client = CohereClient(cache_dir=tmp_path, transport=transport)
+    custom_template = "CUSTOM ANTI-ABSTAIN for {answer_language}: {question}"
+    run_condition(client, corpus, "MONO", "fake-rerank", "fake-chat", prompt_template=custom_template)
+    assert len(seen_prompts) > 0
+    assert all(p.startswith("CUSTOM ANTI-ABSTAIN") for p in seen_prompts)
+
+
 def test_run_condition_stops_gracefully_and_keeps_partial_rows_when_budget_runs_out(tmp_path):
     corpus = build_fixture_corpus()
     # Budget for a handful of calls only: enough for a couple of questions

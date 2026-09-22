@@ -56,10 +56,17 @@ def generate_answer(
     candidates: list[tuple[str, str]],
     model: str = "command-a-03-2025",
     temperature: float = 0.0,
+    prompt_template: str | None = None,
 ) -> dict:
-    """Returns {"text": str, "cited_passage_ids": set[str], "abstained": bool}."""
+    """Returns {"text": str, "cited_passage_ids": set[str], "abstained": bool}.
+
+    prompt_template overrides the default prompt (must have the same
+    {answer_language}/{question} placeholders) -- used by
+    scripts/test_anti_abstention_prompt.py to A/B a prompt variant without
+    touching the validated default."""
     answer_language = LANGUAGE_NAMES.get(query_language, query_language)
-    prompt = _PROMPT_TEMPLATE.format(answer_language=answer_language, question=question)
+    template = prompt_template if prompt_template is not None else _PROMPT_TEMPLATE
+    prompt = template.format(answer_language=answer_language, question=question)
     documents, id_map = build_documents(candidates)
     resp = client.chat(
         model=model,

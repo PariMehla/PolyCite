@@ -105,6 +105,7 @@ def run_condition(
     retrieve_fn=None,
     top_k_retrieve: int = 50,
     top_k_rerank: int = 5,
+    prompt_template: str | None = None,
 ) -> tuple[list[dict], bool]:
     """Returns (rows, budget_exhausted). Stops early and returns whatever it
     has, rather than crashing, if the Cohere call budget runs out mid-loop —
@@ -170,7 +171,9 @@ def run_condition(
             reranked = rerank(client, query_text, candidates, model=rerank_model, top_n=top_k_rerank)
             reranked_ids = [pid for pid, _ in reranked]
             gen_candidates = [(pid, pool[pid]["text"]) for pid in reranked_ids]
-            result = generate_answer(client, query_text, query_language, gen_candidates, model=generation_model)
+            result = generate_answer(
+                client, query_text, query_language, gen_candidates, model=generation_model, prompt_template=prompt_template
+            )
         except BudgetExceededError as e:
             print(f"\n[polycite] Cohere call budget exhausted mid-run: {e}", file=sys.stderr)
             print(f"[polycite] stopping here and saving the {len(rows)} rows already collected for condition={condition}.", file=sys.stderr)
@@ -246,6 +249,16 @@ def summarize(rows: list[dict]) -> None:
         ci = stats.bootstrap_ci(vals, n_resamples=2000)
         print(f"  {lang:10s}  correct={ci['mean']:.2f}  95% CI [{ci['low']:.2f}, {ci['high']:.2f}]  n={ci['n']}")
 
+    print("\n=== False abstention rate by condition (answerable questions where the model said NO_ANSWER) ===")
+    for condition in sorted({r["condition"] for r in rows}):
+        vals = [
+            1.0 if r["abstained"] else 0.0
+            for r in rows
+            if r["condition"] == condition and not r["is_unanswerable"]
+        ]
+        ci = stats.bootstrap_ci(vals, n_resamples=2000)
+        print(f"  {condition:6s}  false_abstention={ci['mean']:.2f}  95% CI [{ci['low']:.2f}, {ci['high']:.2f}]  n={ci['n']}")
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -260,9 +273,21 @@ def main():
         "--conditions", default=None,
         help="comma-separated conditions to scope a live run to, e.g. X2EN,EN2X (default: all 4)",
     )
+    parser.add_argument(
+        "--prompt-variant", choices=["default", "anti_abstain"], default="default",
+        help="anti_abstain uses prompts/answer_with_citations_anti_abstain.txt, which explicitly "
+        "discourages NO_ANSWER just because a document needs translation -- see HYPOTHESES.md "
+        "'RQ4, minimally' for why this is being tested. Retrieval/rerank calls stay cached "
+        "(same query/candidates); only generation calls are new.",
+    )
     args = parser.parse_args()
 
     config = yaml.safe_load(Path(args.config).read_text())
+
+    prompt_template = None
+    if args.prompt_variant == "anti_abstain":
+        prompt_path = Path(__file__).parent.parent / "polycite" / "generate" / "prompts" / "answer_with_citations_anti_abstain.txt"
+        prompt_template = prompt_path.read_text()
 
     run_conditions = args.conditions.split(",") if args.conditions else CONDITIONS
     bad = [c for c in run_conditions if c not in CONDITIONS]
@@ -350,7 +375,9 @@ def main():
 
     all_rows = []
     for condition in run_conditions:
-        rows, budget_exhausted = run_condition(client, corpus, condition, rerank_model, generation_model, retrieve_fn=retrieve_fn)
+        rows, budget_exhausted = run_condition(
+            client, corpus, condition, rerank_model, generation_model, retrieve_fn=retrieve_fn, prompt_template=prompt_template
+        )
         all_rows.extend(rows)
         if budget_exhausted:
             print(f"[polycite] skipping remaining conditions after {condition}; saving partial results below.", file=sys.stderr)
@@ -360,7 +387,11 @@ def main():
         print("[polycite] No rows produced — check corpus size / conditions.", file=sys.stderr)
         return
 
-    tag = args.mode if args.retriever == "bm25" else f"{args.mode}_{args.retriever}"
+    tag = args.mode
+    if args.retriever != "bm25":
+        tag += f"_{args.retriever}"
+    if args.prompt_variant != "default":
+        tag += f"_{args.prompt_variant}"
 
     df = pd.DataFrame(all_rows)
     df["cited_passage_ids"] = df["cited_passage_ids"].apply(list)
