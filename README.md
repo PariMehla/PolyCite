@@ -1,5 +1,7 @@
 # PolyCite v1
 
+[![tests](https://github.com/PariMehla/PolyCite/actions/workflows/test.yml/badge.svg)](https://github.com/PariMehla/PolyCite/actions/workflows/test.yml)
+
 Where does multilingual RAG break? PolyCite measures grounded-answer quality
 across 8 languages on a parallel benchmark (Belebele), and attributes every
 failure to a specific pipeline stage — retrieval, reranking, reading, or
