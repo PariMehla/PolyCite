@@ -44,3 +44,32 @@ def test_corpus_excluding_gold_keeps_gold_passage_for_answerable_question():
     question = corpus.questions[0]
     pool = corpus_excluding_gold(corpus, question, "MONO")
     assert question["passage_id"] in pool
+
+
+def test_english_lookup_covers_every_language_by_shared_link():
+    corpus = build_fixture_corpus()
+    yor_question = next(q for q in corpus.questions if q["language"] == "yor_Latn")
+    english_counterpart = corpus.english_query_for(yor_question)
+    assert english_counterpart["language"] == "eng_Latn"
+    assert english_counterpart["link"] == yor_question["link"]
+
+
+def test_english_query_for_is_the_real_english_text_not_a_relabeled_original():
+    # Regression test for the EN2X bug: the English counterpart must be an
+    # actually-different, actually-English question, not the original
+    # non-English text merely relabeled.
+    corpus = build_fixture_corpus()
+    yor_question = next(q for q in corpus.questions if q["language"] == "yor_Latn")
+    english_counterpart = corpus.english_query_for(yor_question)
+    assert english_counterpart["question"] != yor_question["question"]
+    assert not english_counterpart["question"].startswith("[yor_Latn]")
+
+
+def test_english_query_for_english_question_returns_itself():
+    # english_lookup is built before the unanswerable-split copy, so this
+    # checks content equality, not object identity.
+    corpus = build_fixture_corpus()
+    eng_question = next(q for q in corpus.questions if q["language"] == "eng_Latn")
+    looked_up = corpus.english_query_for(eng_question)
+    assert looked_up["question"] == eng_question["question"]
+    assert looked_up["link"] == eng_question["link"]

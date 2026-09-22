@@ -18,7 +18,7 @@ fixture data + fake transport) proves the pipeline's wiring; `make
 reproduce-live` has now actually run against real Belebele data and a real
 Cohere key (507 calls, well under the 1,000/month trial budget).
 
-The first live run surfaced three real bugs, all found by hand-inspecting
+The first live run surfaced four real bugs, all found by hand-inspecting
 actual model output against gold answers (`scripts/inspect_results.py`) and
 all now fixed and covered by regression tests:
 - Cohere rejects document ids over 100 chars; our URL-based passage ids
@@ -30,6 +30,18 @@ all now fixed and covered by regression tests:
   punctuation, and Arabic's attached definite article "ال" broke exact-word
   matches in both directions — both fixed with Unicode-aware normalization
   and a light per-token article strip.
+- **EN2X never actually queried in English.** It relabeled the original
+  non-English question as `query_language="eng_Latn"` without translating
+  the text, so every EN2X row collapsed into one bucket regardless of which
+  language it came from, and the "English query" was never English. Fixed
+  by looking up the real English-language version of each question via
+  Belebele's shared `(link, question_number)` parallel key
+  (`Corpus.english_query_for`), and by adding a `corpus_language` /
+  `display_language` field since EN2X's meaningful per-language axis is
+  which foreign corpus was searched, not the (now-always-English) query
+  language. **This one changes what's actually sent to Cohere, so re-running
+  it after the fix costs new real API calls for the EN2X condition — it
+  does not replay from cache like the others did.**
 
 **MONO-condition answer correctness after all three fixes** (8 languages x
 ~9 answerable questions each, 95% bootstrap CIs are wide at this sample
@@ -50,9 +62,24 @@ Directionally consistent with H1/H2: correctness degrades roughly by tier,
 and Yoruba (outside Command's core supported languages) fails completely
 even on the ~half of questions where the gold passage was retrieved —
 suggesting a real generation-quality gap, not just a retrieval gap, is
-worth investigating for that language specifically. X2EN/EN2X/MIXED
-conditions and the full 320-row attribution breakdown have also been run
-(`results/live_results.parquet`) but not yet written up here.
+worth investigating for that language specifically.
+
+**H4 (MIXED-condition language bias) looks refuted, but for an interesting
+reason.** Checked with `scripts/inspect_results.py`'s language-bias section:
+in the pooled 8-language MIXED corpus, retrieval essentially never crosses
+languages (Arabic queries retrieve ~100% Arabic passages, Yoruba ~92%
+Yoruba, etc.) — not the hypothesized English over-representation. This
+makes sense once you remember retrieval here is BM25, pure lexical
+matching: a query in Arabic script has ~zero token overlap with English
+documents, so lexical retrieval is language-siloed rather than
+English-biased. Worth re-testing with Cohere Embed (dense/semantic
+retrieval) once that's wired into the pipeline, since embedding-based
+retrieval might show the originally-hypothesized bias where BM25 can't.
+
+X2EN and the full attribution breakdown have been run once; EN2X needs
+re-running after the bug fix above before its numbers mean anything (see
+"First real run checklist"). `results/live_results.parquet` is gitignored
+and local-only, not part of this repo's history.
 
 **Not yet checked**, so hold these loosely: French's 0.50 hasn't been
 hand-inspected the way Arabic and English were, and French has the same

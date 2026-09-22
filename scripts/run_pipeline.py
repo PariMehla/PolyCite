@@ -57,28 +57,48 @@ def run_condition(
     condition finishes (see main())."""
     rows = []
     for question in corpus.questions:
-        query_language = "eng_Latn" if condition == "EN2X" else question["language"]
+        if condition == "EN2X":
+            # EN2X means "an English query over a foreign-language corpus" --
+            # query_text must actually BE English, not the original-language
+            # question relabeled as English (a real bug this fixes; see
+            # README.md "Status"). Belebele is parallel, so the same
+            # question exists in English under the same (link,
+            # question_number) key.
+            english_q = corpus.english_query_for(question)
+            query_text = english_q["question"]
+            query_language = "eng_Latn"
+            gold_answer = english_q["options"][english_q["answer_index"]]
+        else:
+            query_text = question["question"]
+            query_language = question["language"]
+            gold_answer = question["options"][question["answer_index"]]
+
+        corpus_language = {
+            "MONO": question["language"],
+            "X2EN": "eng_Latn",
+            "EN2X": question["language"],  # the foreign corpus actually being searched
+            "MIXED": "ALL",
+        }[condition]
+
         pool = corpus_excluding_gold(corpus, question, condition)
         if len(pool) < 2:
             continue  # fixture corpus is tiny; skip degenerate pools
 
         bm25 = BM25Index(pool)
-        retrieved = bm25.search(question["question"], query_language, top_k=top_k_retrieve)
+        retrieved = bm25.search(query_text, query_language, top_k=top_k_retrieve)
         retrieved_ids = [pid for pid, _ in retrieved]
         candidates = [(pid, pool[pid]["text"]) for pid in retrieved_ids]
 
         try:
-            reranked = rerank(client, question["question"], candidates, model=rerank_model, top_n=top_k_rerank)
+            reranked = rerank(client, query_text, candidates, model=rerank_model, top_n=top_k_rerank)
             reranked_ids = [pid for pid, _ in reranked]
             gen_candidates = [(pid, pool[pid]["text"]) for pid in reranked_ids]
-            result = generate_answer(client, question["question"], query_language, gen_candidates, model=generation_model)
+            result = generate_answer(client, query_text, query_language, gen_candidates, model=generation_model)
         except BudgetExceededError as e:
             print(f"\n[polycite] Cohere call budget exhausted mid-run: {e}", file=sys.stderr)
             print(f"[polycite] stopping here and saving the {len(rows)} rows already collected for condition={condition}.", file=sys.stderr)
             return rows, True
 
-        gold_index = question["answer_index"]
-        gold_answer = question["options"][gold_index]
         score = score_generation(
             prediction_text=result["text"],
             abstained=result["abstained"],
@@ -92,6 +112,12 @@ def run_condition(
         record = {
             "question_id": question["question_id"],
             "query_language": query_language,
+            "corpus_language": corpus_language,
+            # The one language axis to group by for a per-language comparison
+            # under this condition: X2EN and MONO/MIXED vary by query
+            # language (corpus_language is constant "eng_Latn"/"ALL" there),
+            # EN2X varies by corpus_language (query is always English).
+            "display_language": corpus_language if condition == "EN2X" else query_language,
             "condition": condition,
             "is_unanswerable": question["is_unanswerable"],
             "gold_passage_id": question["passage_id"],
@@ -217,7 +243,7 @@ def main():
             vals = [
                 1.0 if r["answer_correct"] else 0.0
                 for r in all_rows
-                if r["condition"] == condition and r["query_language"] == lang and not r["is_unanswerable"]
+                if r["condition"] == condition and r["display_language"] == lang and not r["is_unanswerable"]
             ]
             heatmap_values[lang][condition] = sum(vals) / len(vals) if vals else float("nan")
     heat_path = figures.plot_condition_heatmap(heatmap_values, Path(config["figures_dir"]) / f"{args.mode}_heatmap.png", languages=corpus.languages, conditions=CONDITIONS)

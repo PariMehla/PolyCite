@@ -30,8 +30,12 @@ def passage_language(passage_id: str) -> str:
 
 def print_correctness_heatmap(df: pd.DataFrame) -> None:
     print("\n=== Answer correctness by language x condition (text heatmap) ===")
+    print("(EN2X rows show corpus_language, not query_language -- EN2X always")
+    print(" queries in English, so corpus_language is EN2X's meaningful axis;")
+    print(" see display_language, which picks the right one per condition)")
     answerable = df[~df["is_unanswerable"]]
-    pivot = answerable.groupby(["query_language", "condition"])["answer_correct"].mean().unstack()
+    group_col = "display_language" if "display_language" in df.columns else "query_language"
+    pivot = answerable.groupby([group_col, "condition"])["answer_correct"].mean().unstack()
     conditions = [c for c in ["MONO", "X2EN", "EN2X", "MIXED"] if c in pivot.columns]
     print(pivot[conditions].round(2).to_string())
 
@@ -69,8 +73,9 @@ def main():
     print(f"=== {len(df)} total rows, conditions={sorted(df['condition'].unique())}, "
           f"languages={sorted(df['query_language'].unique())} ===\n")
 
-    print("=== Failure attribution, ALL conditions x languages ===")
-    print(df.groupby(["condition", "query_language"])["failure_stage"]
+    group_col = "display_language" if "display_language" in df.columns else "query_language"
+    print(f"=== Failure attribution, ALL conditions x languages (grouped by {group_col}) ===")
+    print(df.groupby(["condition", group_col])["failure_stage"]
             .apply(lambda s: s.fillna("success").value_counts().to_dict())
             .to_string())
 

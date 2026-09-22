@@ -19,6 +19,12 @@ class Corpus:
     passages: dict[str, dict]  # passage_id -> {passage_id, language, text}
     questions: list[dict]  # question_id -> {..., is_unanswerable}
     languages: list[str]
+    # (link, question_number) -> the eng_Latn version of that same parallel
+    # question, built from the FULL English question set (not the sampled
+    # subset in `questions`) so every sampled non-English question has a
+    # real English counterpart to look up for the EN2X condition. See
+    # scripts/run_pipeline.py's EN2X branch and CLAUDE.md's note on this bug.
+    english_lookup: dict[tuple[str, int], dict] = field(default_factory=dict)
 
     def index_for(self, condition: str, query_language: str) -> dict[str, dict]:
         """Passage pool a retriever should search for this (condition, language) pair.
@@ -32,6 +38,15 @@ class Corpus:
             return self.passages
         target_lang = "eng_Latn" if condition == "X2EN" else query_language
         return {pid: p for pid, p in self.passages.items() if p["language"] == target_lang}
+
+    def english_query_for(self, question: dict) -> dict:
+        """The real English-language version of `question` (same underlying
+        Belebele item, different language config) -- used by EN2X, which
+        must pose the query in English while searching a foreign corpus.
+        Falls back to `question` itself if no English counterpart exists
+        (should only happen for malformed data; MONO/X2EN/MIXED never call
+        this)."""
+        return self.english_lookup.get((question["link"], question["question_number"]), question)
 
 
 def passages_from_fixtures(passages: list[FixturePassage]) -> dict[str, dict]:
@@ -47,6 +62,8 @@ def questions_from_fixtures(questions: list[FixtureQuestion]) -> list[dict]:
             "question": q.question,
             "options": q.options,
             "answer_index": q.answer_index,
+            "link": q.link,
+            "question_number": q.question_number,
         }
         for q in questions
     ]
@@ -71,6 +88,8 @@ def questions_from_belebele_df(df) -> list[dict]:
                 "question": row.question,
                 "options": options,
                 "answer_index": int(row.correct_answer_num) - 1,
+                "link": row.link,
+                "question_number": int(row.question_number),
             }
         )
     return out
@@ -113,14 +132,19 @@ def corpus_excluding_gold(corpus: Corpus, question: dict, condition: str) -> dic
     return pool
 
 
+def _build_english_lookup(questions: list[dict]) -> dict[tuple[str, int], dict]:
+    return {(q["link"], q["question_number"]): q for q in questions if q["language"] == "eng_Latn"}
+
+
 def build_fixture_corpus(unanswerable_fraction: float = 0.15, seed: int = 42) -> Corpus:
     from polycite.data.fixtures import LANGUAGES, build_fixture_dataset
 
     passages, questions = build_fixture_dataset()
     passages_dict = passages_from_fixtures(passages)
     questions_list = questions_from_fixtures(questions)
+    english_lookup = _build_english_lookup(questions_list)
     passages_dict, questions_list = apply_unanswerable_split(passages_dict, questions_list, unanswerable_fraction, seed)
-    return Corpus(passages=passages_dict, questions=questions_list, languages=LANGUAGES)
+    return Corpus(passages=passages_dict, questions=questions_list, languages=LANGUAGES, english_lookup=english_lookup)
 
 
 def build_belebele_corpus(
@@ -133,6 +157,10 @@ def build_belebele_corpus(
     df = build_aligned_table(languages)
     passages_dict = passages_from_belebele_df(df)
     questions_list = questions_from_belebele_df(df)
+    # Built from the FULL (unsampled) question set: EN2X needs the English
+    # counterpart of every sampled non-English question below, not just
+    # whichever ~10 English questions happen to get sampled independently.
+    english_lookup = _build_english_lookup(questions_list)
     if sample_per_language:
         rng = random.Random(seed)
         sampled = []
@@ -142,4 +170,4 @@ def build_belebele_corpus(
             sampled.extend(lang_qs[:sample_per_language])
         questions_list = sampled
     passages_dict, questions_list = apply_unanswerable_split(passages_dict, questions_list, unanswerable_fraction, seed)
-    return Corpus(passages=passages_dict, questions=questions_list, languages=languages)
+    return Corpus(passages=passages_dict, questions=questions_list, languages=languages, english_lookup=english_lookup)

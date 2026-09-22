@@ -31,6 +31,8 @@ class Question:
     question: str
     options: list[str]
     answer_index: int  # 0-3, into options
+    link: str  # article id shared across a question's language versions (Belebele parallel key)
+    question_number: int
 
 
 # Five short parallel "articles" (English original + placeholder translations).
@@ -104,6 +106,8 @@ def build_fixture_dataset() -> tuple[list[Passage], list[Question]]:
                     question=article["question"] if lang == "eng_Latn" else f"[{lang}] {article['question']}",
                     options=shuffled,
                     answer_index=answer_index,
+                    link=pid,
+                    question_number=1,
                 )
             )
     return passages, questions
