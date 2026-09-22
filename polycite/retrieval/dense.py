@@ -9,6 +9,7 @@ does not need.
 from __future__ import annotations
 
 import math
+import time
 from typing import Callable, Optional
 
 from polycite.cohere_client import EMBED_MAX_TEXTS_PER_CALL, CohereClient
@@ -43,6 +44,17 @@ class DenseIndex:
         texts = [passages[pid]["text"] for pid in ids]
         vectors: list[list[float]] = []
         for i in range(0, len(texts), EMBED_MAX_TEXTS_PER_CALL):
+            if i > 0:
+                # Cohere's trial embed limit is token-volume-based (e.g. 100k
+                # tokens/min), not just request-count -- CohereClient's rate
+                # limiter only paces by request count, so a big multi-batch
+                # document-embedding job like this one can burst well past
+                # the token budget in a few seconds even while staying under
+                # the request-count cap. This small proactive gap avoids
+                # relying on 429 retries for something this predictable; it
+                # costs a few seconds even on a fully cache-hit rerun, which
+                # is an acceptable tradeoff for not bursting on a fresh one.
+                time.sleep(0.5)
             batch = texts[i : i + EMBED_MAX_TEXTS_PER_CALL]
             resp = client.embed(model=model, input_type="search_document", texts=batch)
             vectors.extend(resp["embeddings"]["float"])

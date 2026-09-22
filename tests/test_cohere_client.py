@@ -91,3 +91,49 @@ def test_estimate_and_confirm_raises_when_not_confirmable(monkeypatch):
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
     with pytest.raises(BatchNotConfirmedError):
         estimate_and_confirm(100, "test batch", auto_confirm=False)
+
+
+class _FlakySDK:
+    """Fails with a 429 for the first `fail_times` calls, then succeeds.
+    Used to test the real-SDK retry path, which transport-based tests
+    (everything else in this file) never touch -- `transport=` bypasses the
+    SDK call and its surrounding retry loop entirely."""
+
+    def __init__(self, fail_times: int):
+        self.fail_times = fail_times
+        self.calls = 0
+
+    def embed(self, **kwargs):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            err = RuntimeError("trial token rate limit exceeded")
+            err.status_code = 429
+            raise err
+
+        class _Resp:
+            def dict(self):
+                return {"embeddings": {"float": [[0.1, 0.2]]}}
+
+        return _Resp()
+
+
+def test_retries_on_429_and_eventually_succeeds(tmp_path, monkeypatch):
+    # Regression test: a real live run hit exactly this (embed's token-volume
+    # trial limit) and the backoff needs to be strong enough to survive it.
+    monkeypatch.setattr("time.sleep", lambda s: None)  # don't actually wait in tests
+    client = CohereClient(cache_dir=tmp_path)
+    fake_sdk = _FlakySDK(fail_times=2)
+    client._client = fake_sdk  # bypasses _sdk_client()'s API-key requirement
+    resp = client.embed(model="embed-v", input_type="search_document", texts=["hello"])
+    assert resp["embeddings"]["float"] == [[0.1, 0.2]]
+    assert fake_sdk.calls == 3  # 2 failures + 1 success
+
+
+def test_raises_after_exhausting_all_retries_on_persistent_429(tmp_path, monkeypatch):
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    client = CohereClient(cache_dir=tmp_path)
+    fake_sdk = _FlakySDK(fail_times=1000)  # never succeeds
+    client._client = fake_sdk
+    with pytest.raises(RuntimeError):
+        client.embed(model="embed-v", input_type="search_document", texts=["hello"])
+    assert fake_sdk.calls == 8  # max_attempts=7 retries + the initial try

@@ -67,7 +67,13 @@ class _RateLimiter:
         history.append(time.monotonic())
 
     def record_429(self, endpoint: str, attempt: int) -> float:
-        backoff = min(2**attempt, 30)
+        # Cohere enforces a token-volume limit (e.g. 100k tokens/min for
+        # embed on a trial key) as well as the per-endpoint request-count
+        # limit this class otherwise paces against. A burst of large
+        # embed batches can blow the token budget while staying well under
+        # the request-count cap, so backoff here needs to be able to ride
+        # out a full ~60s token-bucket reset, not just a few seconds.
+        backoff = min(2**attempt, 60)
         time.sleep(backoff)
         return backoff
 
@@ -195,14 +201,20 @@ class CohereClient:
         else:
             self.limiter.wait_for_slot(endpoint)
             attempt = 0
+            max_attempts = 7  # cumulative backoff (capped at 60s/try) comfortably exceeds a 60s token-bucket reset window
             while True:
                 try:
                     result = live_fn()
                     break
                 except Exception as e:  # cohere SDK raises typed errors incl. 429
                     status = getattr(e, "status_code", None)
-                    if status == 429 and attempt < 5:
-                        self.limiter.record_429(endpoint, attempt)
+                    if status == 429 and attempt < max_attempts:
+                        backoff = self.limiter.record_429(endpoint, attempt)
+                        print(
+                            f"[polycite] {endpoint} rate-limited (429), waited {backoff:.0f}s "
+                            f"(retry {attempt + 1}/{max_attempts})",
+                            file=sys.stderr,
+                        )
                         attempt += 1
                         continue
                     raise
