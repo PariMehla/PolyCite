@@ -1,7 +1,7 @@
 from polycite.cohere_client import CohereClient
 from polycite.data.build_corpus import build_fixture_corpus
 from polycite.testing import fake_transport
-from scripts.run_pipeline import run_condition
+from scripts.run_pipeline import bm25_retrieve, build_dense_retrieve_fn, run_condition
 
 
 def test_run_condition_completes_without_budget_pressure(tmp_path):
@@ -51,3 +51,56 @@ def test_en2x_display_language_is_corpus_language_others_are_query_language(tmp_
     mono_rows, _ = run_condition(client, corpus, "MONO", "fake-rerank", "fake-chat")
     for r in mono_rows:
         assert r["display_language"] == r["query_language"]
+
+
+def test_bm25_retrieve_returns_only_ids_from_pool():
+    corpus = build_fixture_corpus()
+    pool = {pid: p for pid, p in corpus.passages.items() if p["language"] == "eng_Latn"}
+    ids = bm25_retrieve(pool, "library open morning", "eng_Latn", "eng_Latn", top_k=3)
+    assert all(pid in pool for pid in ids)
+    assert len(ids) <= 3
+
+
+def test_build_dense_retrieve_fn_only_builds_requested_languages(tmp_path):
+    corpus = build_fixture_corpus()
+    client = CohereClient(cache_dir=tmp_path, transport=fake_transport, budget=10_000)
+    retrieve_fn = build_dense_retrieve_fn(client, corpus, ["eng_Latn"], embed_model="fake-embed")
+    pool = {pid: p for pid, p in corpus.passages.items() if p["language"] == "eng_Latn"}
+    ids = retrieve_fn(pool, "some query", "eng_Latn", "eng_Latn", top_k=3)
+    assert all(pid in pool for pid in ids)
+
+
+def test_dense_retrieve_raises_clearly_for_a_language_never_built(tmp_path):
+    corpus = build_fixture_corpus()
+    client = CohereClient(cache_dir=tmp_path, transport=fake_transport, budget=10_000)
+    retrieve_fn = build_dense_retrieve_fn(client, corpus, ["eng_Latn"], embed_model="fake-embed")
+    pool = {pid: p for pid, p in corpus.passages.items() if p["language"] == "yor_Latn"}
+    try:
+        retrieve_fn(pool, "query", "yor_Latn", "yor_Latn", top_k=3)
+        assert False, "expected RuntimeError"
+    except RuntimeError:
+        pass
+
+
+def test_dense_retrieve_filters_out_a_passage_removed_from_this_questions_pool(tmp_path):
+    # The unanswerable split removes the gold passage from one question's
+    # pool without rebuilding the whole language's cached dense index --
+    # dense_retrieve must filter its (stale, full-language) ranking down to
+    # what's actually still in `pool` for this specific question.
+    corpus = build_fixture_corpus()
+    client = CohereClient(cache_dir=tmp_path, transport=fake_transport, budget=10_000)
+    retrieve_fn = build_dense_retrieve_fn(client, corpus, ["eng_Latn"], embed_model="fake-embed")
+    full_pool = {pid: p for pid, p in corpus.passages.items() if p["language"] == "eng_Latn"}
+    excluded_pid = next(iter(full_pool))
+    reduced_pool = {pid: p for pid, p in full_pool.items() if pid != excluded_pid}
+    ids = retrieve_fn(reduced_pool, "some query", "eng_Latn", "eng_Latn", top_k=len(reduced_pool))
+    assert excluded_pid not in ids
+
+
+def test_run_condition_works_end_to_end_with_dense_retriever(tmp_path):
+    corpus = build_fixture_corpus()
+    client = CohereClient(cache_dir=tmp_path, transport=fake_transport, budget=10_000)
+    retrieve_fn = build_dense_retrieve_fn(client, corpus, corpus.languages, embed_model="fake-embed")
+    rows, budget_exhausted = run_condition(client, corpus, "MONO", "fake-rerank", "fake-chat", retrieve_fn=retrieve_fn)
+    assert budget_exhausted is False
+    assert len(rows) > 0
