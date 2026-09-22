@@ -16,10 +16,10 @@ session with **no network access to `huggingface.co` or `api.cohere.com`**
 laptop with internet and a Cohere trial key. `make reproduce` (dry-run,
 fixture data + fake transport) proves the pipeline's wiring; `make
 reproduce-live` has now actually run against real Belebele data and a real
-Cohere key (647 calls across all 4 conditions, well under the 1,000/month
-trial budget).
+Cohere key (862 calls total across all 4 conditions plus the Phase 6 dense-
+retrieval test, well under the 1,000/month trial budget).
 
-The first live run surfaced four real bugs, all found by hand-inspecting
+The first live run surfaced six real bugs, all found by hand-inspecting
 actual model output against gold answers (`scripts/inspect_results.py`) and
 all now fixed and covered by regression tests:
 - Cohere rejects document ids over 100 chars; our URL-based passage ids
@@ -43,10 +43,28 @@ all now fixed and covered by regression tests:
   language. **This one changes what's actually sent to Cohere, so re-running
   it after the fix costs new real API calls for the EN2X condition — it
   does not replay from cache like the others did.**
+- Cohere's trial embed limit is token-volume-based (100k tokens/min), not
+  just request-count; embedding 4 languages' full ~488-passage corpora
+  back-to-back for the Phase 6 test blew past it while staying under the
+  separate 100-requests/minute cap, and the existing 429 retry wasn't
+  strong enough to ride out the ~60s reset. Fixed with a longer backoff cap
+  and proactive pacing between embed batches (`cohere_client.py`,
+  `retrieval/dense.py`).
+- **X2EN's `gold_passage_id` pointed at a passage that could never be
+  found.** It was `question["passage_id"]` (in language L), but X2EN
+  searches an English-only pool — an L-language passage_id can never
+  appear there, so retrieval was graded against a structurally impossible
+  target regardless of actual quality. Found by noticing BM25 and dense
+  retrieval produced *identical* X2EN failure counts, which shouldn't
+  happen for two different retrieval mechanisms. Fixed by pointing
+  gold_passage_id at the real English counterpart
+  (`Corpus.english_query_for`, the same mechanism EN2X's fix uses in
+  reverse) — see "Correction" in `HYPOTHESES.md` for what this changed.
 
-**MONO-condition answer correctness after all three fixes** (8 languages x
-~9 answerable questions each, 95% bootstrap CIs are wide at this sample
-size — see the "First real run checklist" before treating this as final):
+**MONO-condition answer correctness after the scoring fixes above** (8
+languages x ~9 answerable questions each, 95% bootstrap CIs are wide at
+this sample size — see the "First real run checklist" before treating this
+as final):
 
 | Tier | Language | Correct | Post-rerank Recall@5 |
 |---|---|---|---|
@@ -65,55 +83,71 @@ even on the ~half of questions where the gold passage was retrieved —
 suggesting a real generation-quality gap, not just a retrieval gap, is
 worth investigating for that language specifically.
 
-### The headline finding: H3 and H4 are the same bug
+### The headline finding: BM25 can't cross a language boundary — and dense retrieval fixes it
 
-Both cross-lingual hypotheses were wrong in a way that converges on one
-answer. Full verdicts and numbers in [`HYPOTHESES.md`](HYPOTHESES.md);
-summary here:
+Both cross-lingual hypotheses (H3, H4) were wrong in a way that converges
+on one answer, and the fix for it was then tested directly, not just
+diagnosed. Full verdicts, numbers, and the correction below in
+[`HYPOTHESES.md`](HYPOTHESES.md); summary here:
 
 - **H4 predicted** the MIXED condition's retrieval would over-represent
   English passages. It doesn't — it retrieves ~92-100% *same-language*
   passages for every non-English query (Arabic 100%, Yoruba 92%, etc). No
   English bias at all.
 - **H3 predicted** X2EN (local query -> English docs) would outperform EN2X
-  (English query -> local docs) for low-resource languages. It's the
-  opposite: EN2X beat X2EN for both Swahili (0.14 vs 0.00) and Yoruba (0.11
-  vs 0.00).
-- **Why both: X2EN's retrieval_failure rate is 70-100% for every
-  non-English language.** BM25 — pure lexical/keyword matching — essentially
-  never matches a query against documents in a different language or
-  script, in either direction. That's not a bias toward English; it's a
-  wall between languages. H3's asymmetry didn't show up because both
-  directions are already near-total retrieval failures, and H4's bias
-  didn't show up because nothing crosses the language boundary to begin
-  with, English included.
+  (English query -> local docs) for low-resource languages. Corrected data
+  (see below) shows both directions fail at a similar, high rate under
+  BM25 — no asymmetry, both walled off.
+- **Why both: BM25 (pure lexical/keyword matching) essentially never
+  matches a query against documents in a different language or script, in
+  either direction.** Not a bias toward English — a wall between languages.
 
-**The single dominant bottleneck this pilot found is that lexical (BM25)
-retrieval cannot bridge languages at all — not generation quality, not
-English bias, not prompting.** That's a sharper, more testable claim than
-either original hypothesis, and it points directly at the plan's Phase 6
-intervention (dense/embedding retrieval via Cohere Embed, or a
-translate-then-retrieve pivot) as the fix worth testing next, rather than
-at model choice or prompt engineering.
+**Demonstrated, not just diagnosed:** swapping BM25 for Cohere Embed
+(embed-multilingual-v3.0) on the 3 hardest-hit languages dropped
+cross-lingual `retrieval_failure` from 44-60% to 0-10%, symmetrically in
+both directions (X2EN and EN2X alike):
 
-All 4 conditions have now been run for real (647 calls total, well under
-the 1,000/month trial budget) and their full attribution breakdown and
-correctness heatmap are reproducible via `scripts/inspect_results.py`.
-`results/live_results.parquet` is gitignored and local-only — this README
-and `HYPOTHESES.md`'s verdicts section are the durable record.
+| Language | X2EN retrieval_failure | EN2X retrieval_failure |
+|---|---|---|
+| arb_Arab | 60% → **0%** | 60% → **0%** |
+| hin_Deva | 60% → **0%** | 60% → **0%** |
+| yor_Latn | 50% → **10%** | 44% → **0%** |
+
+Answer correctness rose much less than retrieval did, though — once
+retrieval stops failing, `reading_failure` becomes the dominant remaining
+bottleneck (the model has the right document now and still often gets it
+wrong). That's a real, distinct finding for a v2 to chase, not resolved by
+this intervention.
+
+**A correction, stated plainly:** the specific X2EN retrieval_failure
+percentages first reported here were inflated by a real bug —
+`gold_passage_id` pointed at a passage that could never appear in an
+English-only pool, so retrieval was graded against an impossible target
+regardless of actual quality. Found by noticing BM25 and dense retrieval
+produced *suspiciously identical* X2EN failure counts, which shouldn't
+happen for two different retrieval mechanisms. Fixed (local scoring only,
+zero new API calls to reverify); H3's refutation and the "BM25 can't
+cross languages" conclusion both survive with corrected numbers — see
+`HYPOTHESES.md`'s "Correction" section for exactly what changed.
+
+All 4 conditions have now been run for real (862 calls total after the
+corrections, well under the 1,000/month trial budget) and their full
+attribution breakdown and correctness heatmap are reproducible via
+`scripts/inspect_results.py`. `results/*.parquet` is gitignored and
+local-only — this README and `HYPOTHESES.md`'s verdicts section are the
+durable record.
 
 **Not yet checked**, so hold these loosely: French's 0.50 (MONO) hasn't been
 hand-inspected the way Arabic and English were, and French has the same
 general risk class as Arabic (elided articles like `l'eau` glue onto the
 next word); sample size per language (~9-10 questions) gives wide CIs —
-this is a v1 pilot, not the full n=300/language design; H5 (tokenizer
-fertility) hasn't been run yet.
+this is a v1 pilot, not the full n=300/language design.
 
 ## Quickstart
 
 ```bash
 make install          # python3 -m pip install -r requirements.txt
-make test              # 82 unit tests, no network or API key needed
+make test              # 102 unit tests, no network or API key needed
 make reproduce          # full pipeline on fixture data + a fake Cohere transport, $0, no key needed
 ```
 
@@ -184,7 +218,7 @@ polycite/
   testing.py             deterministic fake Cohere transport, shared by tests and --mode dry-run
 scripts/run_pipeline.py  orchestrator: make reproduce / make reproduce-live
 configs/                 languages.yaml, experiment.yaml
-tests/                   82 tests, all offline/mocked
+tests/                   102 tests, all offline/mocked
 cache/ results/ figures/ gitignored contents, regenerated by the pipeline
 ```
 

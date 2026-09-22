@@ -70,6 +70,58 @@ gitignored/local-only; these verdicts are the durable record.
   either original hypothesis and points directly at the Phase 6
   intervention (dense/embedding retrieval or translate-then-retrieve) as
   the fix to test next, rather than at prompting or model choice.
-- **H5: NOT YET TESTED.** Tokenizer fertility measurement
-  (`analysis/tokenizer_fertility.py`) has not been run against the live
-  Cohere tokenize endpoint yet.
+- **H5: SUPPORTED, strongly.** Real tokenizer fertility (2 matched
+  professionally-translated passages/language via `scripts/measure_fertility.py`,
+  Command A's live tokenizer): yor_Latn 1.95x English's tokens/word,
+  swh_Latn 2.12x — both clear the 1.5x bar. Every non-English language
+  costs more: fra_Latn 1.35x, arb_Arab 1.74x, hin_Deva 2.74x, ben_Beng
+  **6.23x** (the most extreme "language tax" found). zho_Hans's 0.69x is a
+  measurement artifact, not real efficiency — Chinese "words" are counted
+  as raw characters (no whitespace), not comparable to the other rows.
+
+## Correction: the H3/H4 numbers above were partly a measurement bug
+
+While testing the Phase 6 intervention (below), comparing BM25 vs. dense
+retrieval for X2EN produced suspiciously *identical* retrieval_failure
+counts across two completely different retrieval mechanisms. Root cause:
+X2EN's `gold_passage_id` was `question["passage_id"]` (in language L), but
+X2EN's pool is English-only -- an L-language passage_id can never appear
+there, so retrieval was being graded against a structurally impossible
+target regardless of actual quality. Fixed in `scripts/run_pipeline.py` /
+`polycite/data/build_corpus.py` (see git history); this only changed local
+scoring, not what was sent to Cohere, so every number below is from a
+zero-new-API-calls rescore of the same underlying data.
+
+The corrected BM25 X2EN retrieval_failure rates are still high (60% arb,
+60% hin, 50% yor for the 3 languages retested) -- H3's refutation and the
+H3/H4-are-the-same-finding conclusion both survive the correction, just
+with more trustworthy numbers behind them. What changed is confidence, not
+conclusion.
+
+## Phase 6 intervention: does dense retrieval fix it? (2026-09-22)
+
+Tested Cohere Embed (embed-multilingual-v3.0) as a drop-in replacement for
+BM25, scoped to X2EN/EN2X on 3 languages (arb_Arab, hin_Deva, yor_Latn;
+same 10 sampled questions/language as the BM25 baseline, for a fair
+paired comparison) -- `scripts/run_pipeline.py --retriever dense`.
+
+**retrieval_failure rate, BM25 -> dense (both directions, corrected):**
+
+| Language | X2EN (BM25→dense) | EN2X (BM25→dense) |
+|---|---|---|
+| arb_Arab | 60% → **0%** | 60% → **0%** |
+| hin_Deva | 60% → **0%** | 60% → **0%** |
+| yor_Latn | 50% → **10%** | 44% → **0%** |
+
+**Verdict: the fix works, symmetrically, and dramatically.** Dense/semantic
+retrieval essentially eliminates the cross-lingual retrieval wall BM25
+couldn't cross in either direction -- this demonstrates the diagnosis
+above (H3/H4's real root cause) rather than just asserting it.
+
+**But it's not the whole fix.** Answer correctness rose much less than
+retrieval did (e.g. arb_Arab X2EN: 0% retrieval_failure now, but
+correctness only 0.44) -- once retrieval stops being the bottleneck,
+`reading_failure` becomes the dominant one: the model now has the right
+document most of the time and still often answers it wrong. That's a
+distinct, real finding worth its own investigation, not solved by this
+intervention and out of scope for today.
