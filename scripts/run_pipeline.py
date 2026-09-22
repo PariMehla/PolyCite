@@ -98,6 +98,8 @@ def run_condition(
             "retrieved_top50": retrieved_ids,
             "reranked_top5": reranked_ids,
             "answer_correct": score["answer_correct"],
+            "prediction_text": result["text"],
+            "gold_answer_text": gold_answer,
             "cited_passage_ids": result["cited_passage_ids"],
             "response_language": detect_language_coarse(result["text"]),
             "abstained": result["abstained"],
@@ -111,10 +113,20 @@ def run_condition(
 
 
 def summarize(rows: list[dict]) -> None:
-    print("\n=== Retrieval Recall@5 by language (MONO) ===")
+    print("\n=== BM25 Recall@5 by language (MONO, pre-rerank -- raw retrieval quality) ===")
     for lang in sorted({r["query_language"] for r in rows if r["condition"] == "MONO"}):
         vals = [
             1.0 if r["gold_passage_id"] in r["retrieved_top50"][:5] else 0.0
+            for r in rows
+            if r["condition"] == "MONO" and r["query_language"] == lang and not r["is_unanswerable"]
+        ]
+        ci = stats.bootstrap_ci(vals, n_resamples=2000)
+        print(f"  {lang:10s}  recall@5={ci['mean']:.2f}  95% CI [{ci['low']:.2f}, {ci['high']:.2f}]  n={ci['n']}")
+
+    print("\n=== Post-rerank Recall@5 by language (MONO -- what the model actually saw) ===")
+    for lang in sorted({r["query_language"] for r in rows if r["condition"] == "MONO"}):
+        vals = [
+            1.0 if r["gold_passage_id"] in r["reranked_top5"] else 0.0
             for r in rows
             if r["condition"] == "MONO" and r["query_language"] == lang and not r["is_unanswerable"]
         ]
